@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "853952722810",
+    "project_id": "house-of-sheelaa",
+    "storage_bucket": "house-of-sheelaa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:853952722810:android:60c46a70c650778ebc88c3",
+        "android_client_info": {
+          "package_name": "com.houseofsheelaa.house_of_sheelaa"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBffPcF3ahuyuWVE5rE1bwLUBfhONZJ5no"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

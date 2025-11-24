@@ -1,0 +1,2 @@
+void showZapierOverlay() {}
+void hideZapierOverlay() {}
