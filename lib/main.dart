@@ -24,6 +24,7 @@ import 'features/store/state/cart_state.dart';
 import 'features/profile/edit_profile_screen.dart';
 import 'core/odoo/odoo_state.dart';
 import 'features/admin/odoo_config_screen.dart';
+import 'features/admin/admin_entry_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -81,6 +82,7 @@ class App extends StatelessWidget {
           ShopScreenNew.route: (_) => const ShopScreenNew(),
           CartScreen.route: (_) => const CartScreen(),
           OdooConfigScreen.route: (_) => const OdooConfigScreen(),
+          AdminEntryScreen.route: (_) => const AdminEntryScreen(),
         },
       ),
     );

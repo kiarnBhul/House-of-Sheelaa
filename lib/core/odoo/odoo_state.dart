@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'odoo_config.dart';
 import 'odoo_api_service.dart';
 import '../models/odoo_models.dart';
@@ -80,19 +81,25 @@ class OdooState extends ChangeNotifier {
     String apiKey = '',
     String username = '',
     String password = '',
+    String proxyUrl = '',
   }) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
+      // Save configuration first
       await OdooConfig.saveConfig(
         baseUrlValue: baseUrl,
         databaseValue: database,
         apiKeyValue: apiKey,
         usernameValue: username,
         passwordValue: password,
+        proxyUrlValue: proxyUrl,
       );
+      
+      // Reload config to ensure proxy URL is loaded
+      await OdooConfig.loadConfig();
 
       final authResult = await _apiService.authenticate();
       if (authResult.success) {

@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 
 class OdooConfig {
   static const String _keyBaseUrl = 'odoo_base_url';
@@ -6,13 +7,19 @@ class OdooConfig {
   static const String _keyApiKey = 'odoo_api_key';
   static const String _keyUsername = 'odoo_username';
   static const String _keyPassword = 'odoo_password';
+  static const String _keyProxyUrl = 'odoo_proxy_url';
   static const String _keyUid = 'odoo_uid';
   static const String _keySessionId = 'odoo_session_id';
 
-  // Default values - Update these with your Odoo instance details
-  static String baseUrl = 'https://your-odoo-instance.com';
-  static String database = 'your_database_name';
-  static String apiKey = 'ec48b7e79184485691fbf3464be9330a7f6031fc'; // Pre-filled API key
+  // Default values - Can be set via environment variables or UI
+  static final String _baseUrlEnv = const String.fromEnvironment('ODOO_BASE_URL', defaultValue: '');
+  static final String _databaseEnv = const String.fromEnvironment('ODOO_DATABASE', defaultValue: '');
+  static final String _apiKeyEnv = const String.fromEnvironment('ODOO_API_KEY', defaultValue: '');
+  static final String _proxyEnv = const String.fromEnvironment('ODOO_PROXY_URL', defaultValue: '');
+  static String baseUrl = _baseUrlEnv.isNotEmpty ? _baseUrlEnv : '';
+  static String database = _databaseEnv.isNotEmpty ? _databaseEnv : '';
+  static String apiKey = _apiKeyEnv; // Can be set via UI or environment variable
+  static String proxyUrl = _proxyEnv; // Optional: when set on web, route requests via proxy to avoid CORS
   static String username = '';
   static String password = '';
   static int? uid;
@@ -32,10 +39,55 @@ class OdooConfig {
     return normalized;
   }
 
+  // Normalize proxy URL to ensure it has /api/odoo path
+  static String _normalizeProxyUrl(String url) {
+    if (url.isEmpty) return url;
+    String normalized = url.trim();
+    // Remove trailing slash
+    if (normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    // If proxy URL doesn't include /api/odoo, add it
+    // But allow for cases where user provides full path
+    if (!normalized.contains('/api/odoo')) {
+      // If it's just a base URL like http://localhost:3000, add /api/odoo
+      final baseUrlPattern = RegExp(r'^https?://[^/]+$');
+      if (baseUrlPattern.hasMatch(normalized)) {
+        normalized = '$normalized/api/odoo';
+      }
+    }
+    return normalized;
+  }
+
   // Odoo API endpoints
-  static String get authUrl => '${_normalizeUrl(baseUrl)}/web/session/authenticate';
-  static String get jsonRpcUrl => '${_normalizeUrl(baseUrl)}/jsonrpc';
-  static String get commonUrl => '${_normalizeUrl(baseUrl)}/jsonrpc';
+  static String get authUrl {
+    if (kIsWeb && proxyUrl.isNotEmpty) {
+      // When using proxy, proxy server handles routing
+      final normalizedProxy = _normalizeProxyUrl(proxyUrl);
+      final url = '$normalizedProxy/web/session/authenticate';
+      // Debug: Only print in debug mode to reduce console spam
+      if (kDebugMode) {
+        print('[OdooConfig] Using proxy for authUrl: $url');
+      }
+      return url;
+    }
+    final directUrl = '${_normalizeUrl(baseUrl)}/web/session/authenticate';
+    return directUrl;
+  }
+  static String get jsonRpcUrl {
+    if (kIsWeb && proxyUrl.isNotEmpty) {
+      // When using proxy, proxy server handles routing
+      final normalizedProxy = _normalizeProxyUrl(proxyUrl);
+      final url = '$normalizedProxy/jsonrpc';
+      return url;
+    }
+    final directUrl = '${_normalizeUrl(baseUrl)}/jsonrpc';
+    return directUrl;
+  }
+  
+  // Get the actual Odoo base URL (needed by proxy)
+  static String get actualOdooBaseUrl => _normalizeUrl(baseUrl);
+  static String get commonUrl => jsonRpcUrl;
 
   // Model names in Odoo
   static const String productModel = 'product.product';
@@ -49,11 +101,13 @@ class OdooConfig {
   /// Load configuration from SharedPreferences
   static Future<void> loadConfig() async {
     final prefs = await SharedPreferences.getInstance();
-    baseUrl = prefs.getString(_keyBaseUrl) ?? baseUrl;
-    database = prefs.getString(_keyDatabase) ?? database;
-    apiKey = prefs.getString(_keyApiKey) ?? apiKey;
+    baseUrl = _baseUrlEnv.isNotEmpty ? _baseUrlEnv : (prefs.getString(_keyBaseUrl) ?? baseUrl);
+    database = _databaseEnv.isNotEmpty ? _databaseEnv : (prefs.getString(_keyDatabase) ?? database);
+    // Load API key from prefs if not set via environment variable
+    apiKey = _apiKeyEnv.isNotEmpty ? _apiKeyEnv : (prefs.getString(_keyApiKey) ?? apiKey);
     username = prefs.getString(_keyUsername) ?? '';
     password = prefs.getString(_keyPassword) ?? '';
+    proxyUrl = _proxyEnv.isNotEmpty ? _proxyEnv : (prefs.getString(_keyProxyUrl) ?? proxyUrl);
     uid = prefs.getInt(_keyUid);
     sessionId = prefs.getString(_keySessionId);
   }
@@ -65,6 +119,7 @@ class OdooConfig {
     String? apiKeyValue,
     String? usernameValue,
     String? passwordValue,
+    String? proxyUrlValue,
     int? uidValue,
     String? sessionIdValue,
   }) async {
@@ -77,7 +132,8 @@ class OdooConfig {
       database = databaseValue;
       await prefs.setString(_keyDatabase, databaseValue);
     }
-    if (apiKeyValue != null) {
+    // Save API key if provided (allows dynamic configuration via UI)
+    if (apiKeyValue != null && apiKeyValue.isNotEmpty) {
       apiKey = apiKeyValue;
       await prefs.setString(_keyApiKey, apiKeyValue);
     }
@@ -88,6 +144,17 @@ class OdooConfig {
     if (passwordValue != null) {
       password = passwordValue;
       await prefs.setString(_keyPassword, passwordValue);
+    }
+    if (proxyUrlValue != null) {
+      proxyUrl = proxyUrlValue.trim();
+      if (proxyUrl.isEmpty) {
+        await prefs.remove(_keyProxyUrl);
+        proxyUrl = ''; // Reset to empty
+      } else {
+        // Normalize proxy URL before saving
+        proxyUrl = _normalizeProxyUrl(proxyUrl);
+        await prefs.setString(_keyProxyUrl, proxyUrl);
+      }
     }
     if (uidValue != null) {
       uid = uidValue;
@@ -107,13 +174,15 @@ class OdooConfig {
     await prefs.remove(_keyApiKey);
     await prefs.remove(_keyUsername);
     await prefs.remove(_keyPassword);
+    await prefs.remove(_keyProxyUrl);
     await prefs.remove(_keyUid);
     await prefs.remove(_keySessionId);
-    baseUrl = 'https://your-odoo-instance.com';
-    database = 'your_database_name';
-    apiKey = '02aad5fe3af89ccca6d120ae6223f0278d683017';
+    baseUrl = '';
+    database = '';
+    apiKey = _apiKeyEnv; // Reset to environment variable if set, otherwise empty
     username = '';
     password = '';
+    proxyUrl = _proxyEnv; // Reset to environment variable if set, otherwise empty
     uid = null;
     sessionId = null;
   }
@@ -121,10 +190,8 @@ class OdooConfig {
   /// Check if configuration is complete
   static bool get isConfigured {
     return baseUrl.isNotEmpty &&
-        baseUrl != 'https://your-odoo-instance.com' &&
         database.isNotEmpty &&
-        database != 'your_database_name' &&
-        apiKey.isNotEmpty;
+        (apiKey.isNotEmpty || (username.isNotEmpty && password.isNotEmpty));
   }
 
   /// Check if user is authenticated

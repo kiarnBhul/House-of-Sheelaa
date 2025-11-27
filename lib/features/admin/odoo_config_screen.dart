@@ -21,6 +21,7 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
   final _apiKeyController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _proxyUrlController = TextEditingController();
   bool _obscurePassword = true;
   bool _obscureApiKey = true;
   bool _isConnecting = false;
@@ -40,6 +41,10 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
       _apiKeyController.text = OdooConfig.apiKey;
       _usernameController.text = OdooConfig.username;
       _passwordController.text = OdooConfig.password;
+      _proxyUrlController.text = OdooConfig.proxyUrl;
+      if (kIsWeb && _proxyUrlController.text.isEmpty) {
+        _proxyUrlController.text = 'http://localhost:3000/api/odoo';
+      }
       _useApiKey = OdooConfig.apiKey.isNotEmpty;
     });
   }
@@ -51,6 +56,7 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
     _apiKeyController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
+    _proxyUrlController.dispose();
     super.dispose();
   }
 
@@ -59,6 +65,22 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
 
     setState(() => _isConnecting = true);
 
+    // Normalize proxy URL - ensure it includes /api/odoo if it's a base URL
+    String proxyUrl = _proxyUrlController.text.trim();
+    if (proxyUrl.isNotEmpty) {
+      // If user entered just base URL like http://localhost:3000, add /api/odoo
+      final baseUrlPattern = RegExp(r'^https?://[^/]+$');
+      if (baseUrlPattern.hasMatch(proxyUrl)) {
+        proxyUrl = '$proxyUrl/api/odoo';
+        // Update the controller to show the full URL
+        _proxyUrlController.text = proxyUrl;
+      }
+      // Remove trailing slash
+      if (proxyUrl.endsWith('/')) {
+        proxyUrl = proxyUrl.substring(0, proxyUrl.length - 1);
+      }
+    }
+    
     final odooState = context.read<OdooState>();
     final success = await odooState.configure(
       baseUrl: _baseUrlController.text.trim(),
@@ -66,6 +88,7 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
       apiKey: _useApiKey ? _apiKeyController.text.trim() : '',
       username: _useApiKey ? '' : _usernameController.text.trim(),
       password: _useApiKey ? '' : _passwordController.text.trim(),
+      proxyUrl: proxyUrl,
     );
 
     setState(() => _isConnecting = false);
@@ -316,6 +339,28 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
                                   required: true,
                                 ),
                                 const SizedBox(height: 16),
+                                // Proxy URL for CORS (Web builds only)
+                                if (kIsWeb) ...[
+                                  _buildTextField(
+                                    controller: _proxyUrlController,
+                                    label: 'Proxy Server URL (Optional)',
+                                    hint: 'http://localhost:3000/api/odoo',
+                                    icon: Icons.cloud_sync_rounded,
+                                    keyboardType: TextInputType.url,
+                                    required: false,
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 16, top: 4),
+                                    child: Text(
+                                      'For web builds: Use a proxy server to avoid CORS errors. Leave empty if CORS is configured on Odoo server.',
+                                      style: tt.bodySmall?.copyWith(
+                                        color: BrandColors.alabaster.withValues(alpha: 0.6),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
                                 // Authentication Method Toggle
                                 Container(
                                   padding: const EdgeInsets.all(16),

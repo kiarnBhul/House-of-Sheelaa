@@ -64,9 +64,7 @@ class OdooApiService {
         // Try standard web session authenticate
         final response = await http.post(
           Uri.parse(OdooConfig.authUrl),
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: _getRequestHeaders(),
           body: jsonEncode({
             'jsonrpc': '2.0',
             'params': {
@@ -145,6 +143,20 @@ Current error: $errorString''',
     }
   }
 
+  /// Get headers for Odoo requests (includes proxy headers if needed)
+  Map<String, String> _getRequestHeaders() {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    
+    // If using proxy on web, send actual Odoo URL as header
+    if (kIsWeb && OdooConfig.proxyUrl.isNotEmpty) {
+      headers['X-Odoo-Base-Url'] = OdooConfig.actualOdooBaseUrl;
+    }
+    
+    return headers;
+  }
+
   /// Authenticate using API key as password
   Future<OdooAuthResult> _authenticateWithApiKey({
     required String username,
@@ -153,9 +165,7 @@ Current error: $errorString''',
     try {
       final response = await http.post(
         Uri.parse(OdooConfig.authUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: _getRequestHeaders(),
         body: jsonEncode({
           'jsonrpc': '2.0',
           'params': {
@@ -223,9 +233,7 @@ Current error: $errorString''',
     try {
       final response = await http.post(
         Uri.parse(OdooConfig.jsonRpcUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: _getRequestHeaders(),
         body: jsonEncode({
           'jsonrpc': '2.0',
           'method': 'call',
@@ -267,9 +275,7 @@ Current error: $errorString''',
     try {
       final response = await http.post(
         Uri.parse(OdooConfig.jsonRpcUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: _getRequestHeaders(),
         body: jsonEncode({
           'jsonrpc': '2.0',
           'method': 'call',
@@ -326,9 +332,7 @@ Current error: $errorString''',
 
     try {
       // Build headers
-      final headers = <String, String>{
-        'Content-Type': 'application/json',
-      };
+      final headers = _getRequestHeaders();
 
       if (OdooConfig.sessionId != null) {
         headers['Cookie'] = 'session_id=${OdooConfig.sessionId}';
@@ -488,10 +492,8 @@ Current error: $errorString''',
           'date_begin',
           'date_end',
           'address_id',
-          'seats_availability',
           'seats_available',
           'event_type_id',
-          'image_1920',
         ],
         order: 'date_begin asc',
       );

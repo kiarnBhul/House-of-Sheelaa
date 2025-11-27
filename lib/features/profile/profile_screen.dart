@@ -5,6 +5,7 @@ import 'package:house_of_sheelaa/features/auth/state/auth_state.dart';
 import 'package:house_of_sheelaa/features/auth/presentation/screens/phone_login_screen.dart';
 import 'package:house_of_sheelaa/features/profile/edit_profile_screen.dart';
 import 'package:house_of_sheelaa/features/home/home_screen.dart';
+import 'package:house_of_sheelaa/features/admin/admin_entry_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -333,6 +334,28 @@ class ProfileScreen extends StatelessWidget {
                       title: 'Settings',
                       subtitle: 'Notifications, privacy, preferences',
                       onTap: () {},
+                    ),
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      height: 1,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.transparent,
+                            BrandColors.alabaster.withValues(alpha: 0.3),
+                            Colors.transparent,
+                          ],
+                        ),
+                    ),
+                    ),
+                    _buildMenuItem(
+                      context,
+                      icon: Icons.admin_panel_settings_rounded,
+                      title: 'Admin Panel',
+                      subtitle: 'Manage services, analytics, and integrations',
+                      onTap: () {
+                        Navigator.of(context).pushNamed(AdminEntryScreen.route);
+                      },
                     ),
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 16),
