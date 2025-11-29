@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import 'package:house_of_sheelaa/theme/brand_theme.dart';
+import 'package:house_of_sheelaa/features/auth/state/auth_state.dart';
 import '../../core/odoo/odoo_config.dart';
 import '../../core/odoo/odoo_state.dart';
 
@@ -26,6 +27,7 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
   bool _obscureApiKey = true;
   bool _isConnecting = false;
   bool _useApiKey = true; // Default to API key authentication
+  bool _persistRemote = true; // default to persist remote config
 
   @override
   void initState() {
@@ -82,6 +84,9 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
     }
     
     final odooState = context.read<OdooState>();
+    final authState = Provider.of<AuthState>(context, listen: false);
+    String? phone = authState.phone;
+
     final success = await odooState.configure(
       baseUrl: _baseUrlController.text.trim(),
       database: _databaseController.text.trim(),
@@ -89,29 +94,32 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
       username: _useApiKey ? '' : _usernameController.text.trim(),
       password: _useApiKey ? '' : _passwordController.text.trim(),
       proxyUrl: proxyUrl,
+      persistRemote: _persistRemote,
+      remoteDocId: _persistRemote ? (phone != null && phone.isNotEmpty ? 'odoo_config_$phone' : 'odoo_config') : null,
     );
 
     setState(() => _isConnecting = false);
 
-    if (mounted) {
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Successfully connected to Odoo!'),
-            backgroundColor: BrandColors.ecstasy,
-          ),
-        );
-        // Refresh data after successful connection
-        await odooState.refreshAll();
-        Navigator.of(context).pop();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Connection failed: ${odooState.error ?? "Unknown error"}'),
-            backgroundColor: BrandColors.persianRed,
-          ),
-        );
-      }
+    if (success) {
+      // Show immediate feedback and then refresh in background
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Successfully connected to Odoo!'),
+          backgroundColor: BrandColors.ecstasy,
+        ),
+      );
+      // Refresh data after successful connection
+      await odooState.refreshAll();
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Connection failed: ${odooState.error ?? "Unknown error"}'),
+          backgroundColor: BrandColors.persianRed,
+        ),
+      );
     }
   }
 
@@ -296,15 +304,52 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
                                                 ),
                                               ),
                                               const SizedBox(height: 4),
-                                              Text(
-                                                'Flutter web apps may encounter CORS errors when connecting to Odoo. If you see "Failed to fetch" errors, try:\n'
-                                                '• Testing on mobile/desktop builds\n'
-                                                '• Configuring Odoo server CORS settings\n'
-                                                '• Using a backend proxy server',
-                                                style: tt.bodySmall?.copyWith(
-                                                  color: BrandColors.alabaster.withValues(alpha: 0.9),
-                                                  fontSize: 12,
-                                                ),
+                                              Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Flutter web apps may encounter CORS errors when connecting to Odoo. If you see "Failed to fetch" errors, try:',
+                                                    style: tt.bodySmall?.copyWith(
+                                                      color: BrandColors.alabaster.withValues(alpha: 0.9),
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  Text(
+                                                    '• Testing on mobile/desktop builds',
+                                                    style: tt.bodySmall?.copyWith(
+                                                      color: BrandColors.alabaster.withValues(alpha: 0.9),
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  Row(
+                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                    children: [
+                                                      Expanded(
+                                                        child: Text(
+                                                          'Persist configuration remotely (encrypted)',
+                                                          style: tt.bodyMedium?.copyWith(color: BrandColors.alabaster),
+                                                        ),
+                                                      ),
+                                                      Switch(
+                                                        value: _persistRemote,
+                                                        onChanged: (v) {
+                                                          setState(() => _persistRemote = v);
+                                                        },
+                                                        activeThumbColor: BrandColors.ecstasy,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  Text(
+                                                    '• Configuring Odoo server CORS settings\n• Using a backend proxy server',
+                                                    style: tt.bodySmall?.copyWith(
+                                                      color: BrandColors.alabaster.withValues(alpha: 0.9),
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ],
                                           ),
@@ -388,12 +433,12 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
                                           ),
                                         ),
                                       ),
-                                      Switch(
+                                        Switch(
                                         value: _useApiKey,
                                         onChanged: (value) {
                                           setState(() => _useApiKey = value);
                                         },
-                                        activeColor: BrandColors.ecstasy,
+                                        activeThumbColor: BrandColors.ecstasy,
                                       ),
                                     ],
                                   ),

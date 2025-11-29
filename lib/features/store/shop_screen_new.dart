@@ -7,7 +7,6 @@ import 'product_detail_screen.dart';
 import 'cart_screen.dart';
 import 'state/cart_state.dart';
 import '../../core/odoo/odoo_state.dart';
-import '../../core/models/odoo_models.dart';
 
 class ShopScreenNew extends StatefulWidget {
   const ShopScreenNew({super.key});

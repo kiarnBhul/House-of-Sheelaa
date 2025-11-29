@@ -5,6 +5,8 @@ import '../../core/auth/admin_auth_state.dart';
 import '../../../theme/brand_theme.dart';
 
 class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+
   @override
   State<LoginPage> createState() => _LoginPageState();
 }

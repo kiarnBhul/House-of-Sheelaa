@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
 import 'odoo_config.dart';
 import 'odoo_api_service.dart';
 import '../models/odoo_models.dart';
@@ -13,6 +13,7 @@ class OdooState extends ChangeNotifier {
 
   List<OdooProduct> _products = [];
   List<OdooService> _services = [];
+  List<OdooCategory> _categories = [];
   List<OdooEvent> _events = [];
   Map<int, OdooStock> _stock = {};
 
@@ -21,6 +22,7 @@ class OdooState extends ChangeNotifier {
   String? get error => _error;
   List<OdooProduct> get products => _products;
   List<OdooService> get services => _services;
+  List<OdooCategory> get categories => _categories;
   List<OdooEvent> get events => _events;
   Map<int, OdooStock> get stock => _stock;
 
@@ -31,7 +33,17 @@ class OdooState extends ChangeNotifier {
   Future<void> _initialize() async {
     await OdooConfig.loadConfig();
     _isAuthenticated = OdooConfig.isAuthenticated;
-    
+    // If local config is missing, try to load from Firestore (remote persistent config)
+    if (!OdooConfig.isConfigured) {
+      try {
+        final ok = await OdooConfig.loadFromFirestore();
+        if (ok) {
+          // reload local flags
+          _isAuthenticated = OdooConfig.isAuthenticated;
+        }
+      } catch (_) {}
+    }
+
     // Auto-connect to Odoo in background if configured
     if (OdooConfig.isConfigured && !_isAuthenticated) {
       // Try to authenticate silently in background
@@ -64,13 +76,20 @@ class OdooState extends ChangeNotifier {
   Future<void> _loadDataInBackground() async {
     if (!_isAuthenticated) return;
     
-    // Load products in background
+    // Load products in background (do not filter by stock so services are included)
     Future.microtask(() async {
       try {
-        await loadProducts();
+        await loadProducts(inStock: false);
       } catch (e) {
         // Silent fail
       }
+    });
+    // Load categories and services as well
+    Future.microtask(() async {
+      try {
+        await loadCategories();
+        await loadServices();
+      } catch (e) {}
     });
   }
 
@@ -82,6 +101,8 @@ class OdooState extends ChangeNotifier {
     String username = '',
     String password = '',
     String proxyUrl = '',
+    bool persistRemote = false,
+    String? remoteDocId,
   }) async {
     _isLoading = true;
     _error = null;
@@ -102,11 +123,18 @@ class OdooState extends ChangeNotifier {
       await OdooConfig.loadConfig();
 
       final authResult = await _apiService.authenticate();
-      if (authResult.success) {
-        _isAuthenticated = true;
-        _isLoading = false;
-        notifyListeners();
-        return true;
+        if (authResult.success) {
+          _isAuthenticated = true;
+          _isLoading = false;
+          // Persist remotely if requested
+          if (persistRemote) {
+            try {
+              final docId = remoteDocId ?? 'odoo_config';
+              await OdooConfig.saveToFirestore(docId: docId);
+            } catch (_) {}
+          }
+          notifyListeners();
+          return true;
       } else {
         _error = authResult.error;
         _isAuthenticated = false;
@@ -163,6 +191,41 @@ class OdooState extends ChangeNotifier {
 
     try {
       _services = await _apiService.getServices();
+      debugPrint('[OdooState] loaded services: ${_services.length}');
+      if (_services.isNotEmpty) {
+        for (var s in _services.take(6)) {
+          debugPrint('[OdooState] service sample: id=${s.id} name="${s.name}" categ=${s.categoryId} public=${s.publicCategoryIds}');
+        }
+      }
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Load ecommerce categories from Odoo
+  Future<void> loadCategories() async {
+    if (!_isAuthenticated) {
+      _error = 'Not authenticated with Odoo';
+      notifyListeners();
+      return;
+    }
+
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      _categories = await _apiService.getCategories();
+      debugPrint('[OdooState] loaded categories: ${_categories.length}');
+      if (_categories.isNotEmpty) {
+        for (var c in _categories.take(10)) {
+          debugPrint('[OdooState] category sample: id=${c.id} name="${c.name}" parent=${c.parentId}');
+        }
+      }
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -222,9 +285,10 @@ class OdooState extends ChangeNotifier {
   /// Refresh all data
   Future<void> refreshAll() async {
     await Future.wait([
-      loadProducts(),
+      loadProducts(inStock: false),
       loadServices(),
       loadEvents(),
+      loadCategories(),
     ]);
   }
 
@@ -270,6 +334,119 @@ class OdooState extends ChangeNotifier {
   /// Get stock for product
   OdooStock? getStockForProduct(int productId) {
     return _stock[productId];
+  }
+
+  // ------------------ CRUD helpers ------------------
+  /// Create a new category in Odoo and refresh categories
+  Future<int?> createCategory(Map<String, dynamic> values) async {
+    if (!_isAuthenticated) return null;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final id = await _apiService.createCategory(values);
+      await loadCategories();
+      _isLoading = false;
+      notifyListeners();
+      return id;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// Update a category and refresh
+  Future<bool> updateCategory(int id, Map<String, dynamic> values) async {
+    if (!_isAuthenticated) return false;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final ok = await _apiService.updateCategory(id, values);
+      await loadCategories();
+      _isLoading = false;
+      notifyListeners();
+      return ok;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Delete a category and refresh
+  Future<bool> deleteCategory(int id) async {
+    if (!_isAuthenticated) return false;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final ok = await _apiService.deleteCategory(id);
+      await loadCategories();
+      _isLoading = false;
+      notifyListeners();
+      return ok;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Product CRUD
+  Future<int?> createProduct(Map<String, dynamic> values) async {
+    if (!_isAuthenticated) return null;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final id = await _apiService.createProductRecord(values);
+      await loadProducts();
+      _isLoading = false;
+      notifyListeners();
+      return id;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<bool> updateProduct(int id, Map<String, dynamic> values) async {
+    if (!_isAuthenticated) return false;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final ok = await _apiService.updateProductRecord(id, values);
+      await loadProducts();
+      _isLoading = false;
+      notifyListeners();
+      return ok;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> deleteProduct(int id) async {
+    if (!_isAuthenticated) return false;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final ok = await _apiService.deleteProductRecord(id);
+      await loadProducts();
+      _isLoading = false;
+      notifyListeners();
+      return ok;
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
   }
 }
 

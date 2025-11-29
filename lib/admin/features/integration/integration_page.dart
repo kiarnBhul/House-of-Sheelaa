@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/odoo/odoo_state.dart';
 import '../../../theme/brand_theme.dart';
 import '../../../features/admin/odoo_config_screen.dart';
+import 'odoo_categories_page.dart';
 
 class IntegrationPage extends StatelessWidget {
   const IntegrationPage({super.key});
@@ -74,7 +74,27 @@ class IntegrationPage extends StatelessWidget {
               const SizedBox(height: 32),
               // Integration Cards
               const _IntegrationCards(),
-              const SizedBox(height: 32),
+              const SizedBox(height: 20),
+              // Quick link to manage categories in Odoo
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (ctx) => const OdooCategoriesPage(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.category_rounded),
+                    label: const Text('Manage Odoo Categories'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: BrandColors.jacaranda,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               // API Status
               const _ApiStatusSection(),
             ],

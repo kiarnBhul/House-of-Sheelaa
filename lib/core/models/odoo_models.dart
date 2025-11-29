@@ -5,10 +5,13 @@ class OdooProduct {
   final double price;
   final int? categoryId;
   final String? categoryName;
+  final List<int>? publicCategoryIds;
+  final List<String>? publicCategoryNames;
   final String? imageUrl;
   final double? quantityAvailable;
   final String? defaultCode;
   final String? barcode;
+  final String? type;
 
   OdooProduct({
     required this.id,
@@ -17,23 +20,32 @@ class OdooProduct {
     required this.price,
     this.categoryId,
     this.categoryName,
+    this.publicCategoryIds,
+    this.publicCategoryNames,
     this.imageUrl,
     this.quantityAvailable,
     this.defaultCode,
     this.barcode,
+    this.type,
   });
 
   factory OdooProduct.fromJson(Map<String, dynamic> json) {
+      // Parse type (service/goods/combo)
+      String? type = json['type'] is String ? json['type'] as String : null;
     // Handle category - can be a list [id, name] or just id
     int? categoryId;
     String? categoryName;
-    if (json['categ_id'] != null) {
-      if (json['categ_id'] is List) {
-        final category = json['categ_id'] as List;
-        categoryId = category.isNotEmpty ? category[0] as int? : null;
-        categoryName = category.length > 1 ? category[1] as String? : null;
+    final rawCateg = json['categ_id'];
+    if (rawCateg != null) {
+      if (rawCateg is List) {
+        final category = rawCateg;
+        categoryId = category.isNotEmpty && category[0] is int ? category[0] as int : null;
+        categoryName = category.length > 1 && category[1] is String ? category[1] as String : null;
+      } else if (rawCateg is int) {
+        categoryId = rawCateg;
       } else {
-        categoryId = json['categ_id'] as int?;
+        // Some Odoo instances return `false` or other non-int when no category is set.
+        categoryId = null;
       }
     }
 
@@ -49,17 +61,64 @@ class OdooProduct {
       }
     }
 
+    // Parse public categories (many2many). Odoo may return:
+    // - a list of ints: [1,2]
+    // - a list of pairs: [[1, 'Name'], [2, 'Name']]
+    // - a special command wrapper: [[6, 0, [1,2]]]
+    List<int>? publicCategoryIds;
+    List<String>? publicCategoryNames;
+    if (json['public_categ_ids'] != null) {
+      final rawVal = json['public_categ_ids'];
+      if (rawVal is List) {
+        // If wrapper like [[6,0,[1,2]]], extract the nested ids
+        if (rawVal.isNotEmpty && rawVal.first is List && rawVal.first.length >= 3 && rawVal.first[0] == 6 && rawVal.first[2] is List) {
+          final inner = rawVal.first[2] as List;
+          publicCategoryIds = inner.whereType<int>().toList();
+        } else {
+          // Flatten possible [id] or [ [id,name], ... ]
+          final ids = <int>[];
+          final names = <String>[];
+          for (var e in rawVal) {
+            if (e is int) {
+              ids.add(e);
+            } else if (e is List && e.isNotEmpty) {
+              // [id, name]
+              final id = e[0];
+              final name = e.length > 1 ? e[1] : null;
+              if (id is int) ids.add(id);
+              if (name is String) names.add(name);
+            }
+          }
+          if (ids.isNotEmpty) publicCategoryIds = ids;
+          if (names.isNotEmpty) publicCategoryNames = names;
+        }
+      }
+    }
+
+    // Defensive parsing for fields that may be booleans (false) instead of null/strings
+    final nameVal = json['name'] is String ? json['name'] as String : '';
+    final descVal = json['description'] is String ? json['description'] as String : null;
+    final listPriceRaw = json['list_price'];
+    final priceVal = listPriceRaw is num ? (listPriceRaw).toDouble() : 0.0;
+    final qtyRaw = json['qty_available'];
+    final qtyVal = qtyRaw is num ? (qtyRaw).toDouble() : null;
+    final defaultCodeVal = json['default_code'] is String ? json['default_code'] as String : null;
+    final barcodeVal = json['barcode'] is String ? json['barcode'] as String : null;
+
     return OdooProduct(
       id: json['id'] as int,
-      name: json['name'] as String? ?? '',
-      description: json['description'] as String?,
-      price: (json['list_price'] as num?)?.toDouble() ?? 0.0,
+      name: nameVal,
+      description: descVal,
+      price: priceVal,
       categoryId: categoryId,
       categoryName: categoryName,
+      publicCategoryIds: publicCategoryIds,
+      publicCategoryNames: publicCategoryNames,
       imageUrl: imageUrl,
-      quantityAvailable: (json['qty_available'] as num?)?.toDouble(),
-      defaultCode: json['default_code'] as String?,
-      barcode: json['barcode'] as String?,
+      quantityAvailable: qtyVal,
+      defaultCode: defaultCodeVal,
+      barcode: barcodeVal,
+      type: type,
     );
   }
 
@@ -71,10 +130,13 @@ class OdooProduct {
       'list_price': price,
       'categ_id': categoryId,
       'categ_name': categoryName,
+      'public_categ_ids': publicCategoryIds,
+      'public_categ_names': publicCategoryNames,
       'image_1920': imageUrl,
       'qty_available': quantityAvailable,
       'default_code': defaultCode,
       'barcode': barcode,
+      'type': type,
     };
   }
 }
@@ -89,6 +151,8 @@ class OdooService {
   final String? imageUrl;
   final String? defaultCode;
   final List<OdooSubService>? subServices;
+  final List<int>? publicCategoryIds;
+  final List<String>? publicCategoryNames;
 
   OdooService({
     required this.id,
@@ -100,18 +164,24 @@ class OdooService {
     this.imageUrl,
     this.defaultCode,
     this.subServices,
+    this.publicCategoryIds,
+    this.publicCategoryNames,
   });
 
   factory OdooService.fromJson(Map<String, dynamic> json) {
     int? categoryId;
     String? categoryName;
-    if (json['categ_id'] != null) {
-      if (json['categ_id'] is List) {
-        final category = json['categ_id'] as List;
-        categoryId = category.isNotEmpty ? category[0] as int? : null;
-        categoryName = category.length > 1 ? category[1] as String? : null;
+    final rawCateg = json['categ_id'];
+    if (rawCateg != null) {
+      if (rawCateg is List) {
+        final category = rawCateg;
+        categoryId = category.isNotEmpty && category[0] is int ? category[0] as int : null;
+        categoryName = category.length > 1 && category[1] is String ? category[1] as String : null;
+      } else if (rawCateg is int) {
+        categoryId = rawCateg;
       } else {
-        categoryId = json['categ_id'] as int?;
+        // Handle cases where Odoo returns false or unexpected values for categ_id
+        categoryId = null;
       }
     }
 
@@ -125,15 +195,51 @@ class OdooService {
       }
     }
 
+    // Parse public categories (same robust logic as for products)
+    List<int>? publicCategoryIds;
+    List<String>? publicCategoryNames;
+    if (json['public_categ_ids'] != null) {
+      final rawVal = json['public_categ_ids'];
+      if (rawVal is List) {
+        if (rawVal.isNotEmpty && rawVal.first is List && rawVal.first.length >= 3 && rawVal.first[0] == 6 && rawVal.first[2] is List) {
+          final inner = rawVal.first[2] as List;
+          publicCategoryIds = inner.whereType<int>().toList();
+        } else {
+          final ids = <int>[];
+          final names = <String>[];
+          for (var e in rawVal) {
+            if (e is int) {
+              ids.add(e);
+            } else if (e is List && e.isNotEmpty) {
+              final id = e[0];
+              final name = e.length > 1 ? e[1] : null;
+              if (id is int) ids.add(id);
+              if (name is String) names.add(name);
+            }
+          }
+          if (ids.isNotEmpty) publicCategoryIds = ids;
+          if (names.isNotEmpty) publicCategoryNames = names;
+        }
+      }
+    }
+
+    final nameVal = json['name'] is String ? json['name'] as String : '';
+    final descVal = json['description'] is String ? json['description'] as String : null;
+    final listPriceRaw = json['list_price'];
+    final priceVal = listPriceRaw is num ? (listPriceRaw).toDouble() : 0.0;
+    final defaultCodeVal = json['default_code'] is String ? json['default_code'] as String : null;
+
     return OdooService(
       id: json['id'] as int,
-      name: json['name'] as String? ?? '',
-      description: json['description'] as String?,
-      price: (json['list_price'] as num?)?.toDouble() ?? 0.0,
+      name: nameVal,
+      description: descVal,
+      price: priceVal,
       categoryId: categoryId,
       categoryName: categoryName,
       imageUrl: imageUrl,
-      defaultCode: json['default_code'] as String?,
+      defaultCode: defaultCodeVal,
+      publicCategoryIds: publicCategoryIds,
+      publicCategoryNames: publicCategoryNames,
     );
   }
 
@@ -145,8 +251,68 @@ class OdooService {
       'list_price': price,
       'categ_id': categoryId,
       'categ_name': categoryName,
+      'public_categ_ids': publicCategoryIds,
+      'public_categ_names': publicCategoryNames,
       'image_1920': imageUrl,
       'default_code': defaultCode,
+    };
+  }
+}
+
+class OdooCategory {
+  final int id;
+  final String name;
+  final int? parentId;
+  final String? parentName;
+  final String? imageUrl;
+
+  OdooCategory({
+    required this.id,
+    required this.name,
+    this.parentId,
+    this.parentName,
+    this.imageUrl,
+  });
+
+  factory OdooCategory.fromJson(Map<String, dynamic> json) {
+    int? parentId;
+    String? parentName;
+    if (json['parent_id'] != null) {
+      if (json['parent_id'] is List) {
+        final p = json['parent_id'] as List;
+        parentId = p.isNotEmpty ? p[0] as int? : null;
+        parentName = p.length > 1 ? p[1] as String? : null;
+      } else if (json['parent_id'] is int) {
+        parentId = json['parent_id'] as int?;
+      }
+    }
+
+    String? imageUrl;
+    if (json['image_1920'] != null && json['image_1920'] is String) {
+      final image = json['image_1920'] as String;
+      if (image.startsWith('http')) {
+        imageUrl = image;
+      } else if (image.isNotEmpty) {
+        imageUrl = 'data:image/png;base64,$image';
+      }
+    }
+
+    return OdooCategory(
+      id: json['id'] as int,
+      name: json['name'] as String? ?? '',
+      parentId: parentId,
+      parentName: parentName,
+      imageUrl: imageUrl,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'parent_id': parentId,
+      'parent_name': parentName,
+      'image_1920': imageUrl,
     };
   }
 }
@@ -169,13 +335,20 @@ class OdooSubService {
   });
 
   factory OdooSubService.fromJson(Map<String, dynamic> json) {
+    final nameVal = json['name'] is String ? json['name'] as String : '';
+    final descVal = json['description'] is String ? json['description'] as String : null;
+    final priceRaw = json['list_price'];
+    final priceVal = priceRaw is num ? (priceRaw).toDouble() : null;
+    final durVal = json['duration_minutes'] is int ? json['duration_minutes'] as int : null;
+    final imgVal = json['image_1920'] is String ? json['image_1920'] as String : null;
+
     return OdooSubService(
       id: json['id'] as int,
-      name: json['name'] as String? ?? '',
-      description: json['description'] as String?,
-      price: (json['list_price'] as num?)?.toDouble(),
-      durationMinutes: json['duration_minutes'] as int?,
-      imageUrl: json['image_1920'] as String?,
+      name: nameVal,
+      description: descVal,
+      price: priceVal,
+      durationMinutes: durVal,
+      imageUrl: imgVal,
     );
   }
 }

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:house_of_sheelaa/theme/brand_theme.dart';
 import 'numerology_service_form_screen.dart';
+import 'package:house_of_sheelaa/core/odoo/odoo_state.dart';
+import 'package:house_of_sheelaa/core/models/odoo_models.dart';
 
 class ServiceDetailScreen extends StatelessWidget {
   const ServiceDetailScreen({super.key});
@@ -9,7 +13,16 @@ class ServiceDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    bool isValidImageUrl(String? u) {
+      if (u == null || u.isEmpty) return false;
+      final low = u.toLowerCase();
+      if (!(low.startsWith('http') || low.startsWith('data:'))) return false;
+      // Some external placeholder hosts (eg. Unsplash demo URLs) can 404 in development;
+      // treat known-problem hosts as invalid so we don't trigger noisy network requests.
+      if (low.contains('unsplash.com')) return false;
+      return true;
+    }
+
     final tt = Theme.of(context).textTheme;
     final args =
         (ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?) ??
@@ -17,10 +30,105 @@ class ServiceDetailScreen extends StatelessWidget {
     final name = (args['name'] as String?) ?? 'Service';
     final subtitle = (args['subtitle'] as String?) ?? '';
     final image = (args['image'] as String?) ?? '';
-    final subs = (args['subs'] as List?)?.cast<Map>() ?? const <Map>[];
+    // Subs passed from caller (may be empty when navigating from category card)
+    List<Map<String, dynamic>> subs = (args['subs'] as List?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
+
+    // If no subs were provided, try to build them from OdooState using category id or name
+    final odooState = Provider.of<OdooState>(context);
+    if (subs.isEmpty && odooState.isAuthenticated && odooState.categories.isNotEmpty) {
+      int? categoryId;
+      if (args.containsKey('id')) {
+        final rawId = args['id'];
+        if (rawId is int) {
+          categoryId = rawId;
+        } else if (rawId is String) categoryId = int.tryParse(rawId);
+      }
+
+      // try to find category by id or by name
+      OdooCategory? cat;
+      if (categoryId != null) {
+        try {
+          cat = odooState.categories.firstWhere((c) => c.id == categoryId);
+        } catch (e) {
+          cat = null;
+        }
+      }
+      if (cat == null) {
+        final nameMatch = (args['name'] as String?) ?? '';
+        try {
+          cat = odooState.categories.firstWhere((c) => c.name == nameMatch);
+        } catch (e) {
+          cat = null;
+        }
+      }
+
+      if (cat != null) {
+        final cid = cat.id;
+        // Use services collection (OdooService) — these are fetched with type='service'
+        final services = odooState.services.where((s) {
+          final byPublic = s.publicCategoryIds != null && s.publicCategoryIds!.contains(cid);
+          final byInternal = s.categoryId != null && s.categoryId == cid;
+          return byPublic || byInternal;
+        }).toList();
+
+        final built = <Map<String, dynamic>>[];
+
+        if (services.isNotEmpty) {
+          for (var s in services) {
+            if (s.subServices != null && s.subServices!.isNotEmpty) {
+              for (var ss in s.subServices!) {
+                built.add({
+                  'type': 'service',
+                  'id': ss.id,
+                  'name': ss.name,
+                  'image': ss.imageUrl ?? s.imageUrl ?? 'assets/images/background.jpg',
+                  'price': ss.price ?? s.price,
+                  'durationMin': ss.durationMinutes,
+                });
+              }
+            } else {
+              built.add({
+                'type': 'service',
+                'id': s.id,
+                'name': s.name,
+                'image': s.imageUrl ?? 'assets/images/background.jpg',
+                'price': s.price,
+                'durationMin': null,
+              });
+            }
+          }
+        } else {
+          // Fallback: some Odoo setups return services as product templates/products with type='service'.
+          // Use products list filtered by type == 'service' if services list is empty.
+          final fallback = odooState.products.where((p) {
+            final byPublic = p.publicCategoryIds != null && p.publicCategoryIds!.contains(cid);
+            final byInternal = p.categoryId != null && p.categoryId == cid;
+            final isService = (p.type ?? '') == 'service';
+            return (byPublic || byInternal) && isService;
+          }).toList();
+          for (var p in fallback) {
+            built.add({
+              'type': 'service',
+              'id': p.id,
+              'name': p.name,
+              'image': p.imageUrl ?? 'assets/images/background.jpg',
+              'price': p.price,
+              'durationMin': null,
+            });
+          }
+                debugPrint('[ServiceDetail] services empty — used products fallback count=${fallback.length}');
+        }
+
+        subs = built;
+                // Only show explicitly assigned services/products. Do not use name-match heuristics.
+                debugPrint('[ServiceDetail] category=${cat.name} id=$cid services=${services.length} subs=${subs.length} products=${odooState.products.length}');
+      }
+    }
+    // Do not show global/all-services fallback here — keep category pages strict.
 
     return Scaffold(
       extendBodyBehindAppBar: true,
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           Positioned.fill(
@@ -57,42 +165,56 @@ class ServiceDetailScreen extends StatelessWidget {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.network(
-                        image,
-                        fit: BoxFit.cover,
-                        filterQuality: FilterQuality.low,
-                        loadingBuilder: (ctx, child, progress) {
-                          if (progress == null) return child;
-                          return Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Color(0x4030012F),
-                                  Color(0x407E0562),
-                                  Color(0x20F9751E),
-                                ],
+                        (isValidImageUrl(image))
+                          ? Image.network(
+                              image,
+                              fit: BoxFit.cover,
+                              filterQuality: FilterQuality.low,
+                              loadingBuilder: (ctx, child, progress) {
+                                if (progress == null) return child;
+                                return Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Color(0x4030012F),
+                                        Color(0x407E0562),
+                                        Color(0x20F9751E),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                              errorBuilder: (ctx, error, stack) {
+                                return Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Color(0x8030012F),
+                                        Color(0x807E0562),
+                                        Color(0x40F9751E),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            )
+                          : Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color(0x8030012F),
+                                    Color(0x807E0562),
+                                    Color(0x40F9751E),
+                                  ],
+                                ),
                               ),
                             ),
-                          );
-                        },
-                        errorBuilder: (ctx, error, stack) {
-                          return Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Color(0x8030012F),
-                                  Color(0x807E0562),
-                                  Color(0x40F9751E),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
                       Container(
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
@@ -159,181 +281,291 @@ class ServiceDetailScreen extends StatelessWidget {
                 ),
               ),
             ),
-            SliverLayoutBuilder(
-              builder: (context, constraints) {
-                final w = constraints.crossAxisExtent;
-                final cross = w >= 900 ? 4 : (w >= 600 ? 3 : 2);
-                return SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  sliver: SliverGrid(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: cross,
-                      mainAxisSpacing: 16,
-                      crossAxisSpacing: 16,
-                      childAspectRatio: 0.78,
-                    ),
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final m = subs[index].cast<String, dynamic>();
-                      final title = (m['name'] as String?) ?? '';
-                      final img = (m['image'] as String?) ?? '';
-                      final price = (m['price'] as num?);
-                      final pmin = (m['priceMin'] as num?);
-                      final pmax = (m['priceMax'] as num?);
-                      final mins = (m['durationMin'] as int?);
+            if (kDebugMode)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      Text(
+                        'DEBUG: Raw Odoo data (first 30)',
+                        style: tt.titleSmall?.copyWith(color: Colors.white70),
+                      ),
+                      const SizedBox(height: 8),
+                      Builder(builder: (ctx) {
+                        final services = odooState.services;
+                        final products = odooState.products;
+                        final sb = StringBuffer();
+                        sb.writeln('services (${services.length}):');
+                        for (var s in services.take(30)) {
+                          sb.writeln('id=${s.id} name="${s.name}" categ=${s.categoryId} public=${s.publicCategoryIds}');
+                        }
+                        sb.writeln('\nproducts (${products.length}):');
+                        for (var p in products.take(30)) {
+                          sb.writeln('id=${p.id} name="${p.name}" type=${p.type} categ=${p.categoryId} public=${p.publicCategoryIds}');
+                        }
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.black26,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Text(
+                              sb.toString(),
+                              style: tt.bodySmall?.copyWith(color: Colors.white70, fontFamily: 'monospace'),
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+            if (subs.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 40),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(height: 8),
+                      Text(
+                        'No services found in this category.',
+                        style: tt.bodyLarge?.copyWith(
+                          color: BrandColors.alabaster.withValues(alpha: 0.9),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          ElevatedButton(
+                            onPressed: () async {
+                              try {
+                                await odooState.refreshAll();
+                                debugPrint('[ServiceDetail] manual refresh complete');
+                              } catch (e) {
+                                debugPrint('[ServiceDetail] refresh error: $e');
+                              }
+                            },
+                            child: const Text('Refresh'),
+                          ),
+                          const SizedBox(width: 12),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                            },
+                            child: const Text('Back'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              SliverLayoutBuilder(
+                builder: (context, constraints) {
+                  final w = constraints.crossAxisExtent;
+                  final cross = w >= 900 ? 4 : (w >= 600 ? 3 : 2);
+                  return SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    sliver: SliverGrid(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: cross,
+                        mainAxisSpacing: 16,
+                        crossAxisSpacing: 16,
+                        childAspectRatio: 0.78,
+                      ),
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final m = subs[index].cast<String, dynamic>();
+                        final title = (m['name'] as String?) ?? '';
+                        final img = (m['image'] as String?) ?? '';
+                        final price = (m['price'] as num?);
+                        final pmin = (m['priceMin'] as num?);
+                        final pmax = (m['priceMax'] as num?);
+                        final mins = (m['durationMin'] as int?);
 
-                      String priceText = '';
-                      if (pmin != null && pmax != null) {
-                        priceText =
-                            '₹${pmin.toStringAsFixed(0)} – ₹${pmax.toStringAsFixed(0)}';
-                      } else if (price != null && mins != null) {
-                        priceText =
-                            '₹${price.toStringAsFixed(0)} — $mins minutes';
-                      } else if (price != null) {
-                        priceText = '₹${price.toStringAsFixed(0)}';
-                      } else if (mins != null) {
-                        priceText = 'Price varies — $mins minutes';
-                      }
+                        String priceText = '';
+                        if (pmin != null && pmax != null) {
+                          priceText =
+                              '₹${pmin.toStringAsFixed(0)} – ₹${pmax.toStringAsFixed(0)}';
+                        } else if (price != null && mins != null) {
+                          priceText =
+                              '₹${price.toStringAsFixed(0)} — $mins minutes';
+                        } else if (price != null) {
+                          priceText = '₹${price.toStringAsFixed(0)}';
+                        } else if (mins != null) {
+                          priceText = 'Price varies — $mins minutes';
+                        }
 
-                      return GestureDetector(
-                        onTap: () {
-                          // Navigate to numerology form if it's a numerology service
-                          if (name == 'Numerology') {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => NumerologyServiceFormScreen(
-                                  serviceName: title,
-                                  serviceImage: img,
+                        return GestureDetector(
+                          onTap: () {
+                            // Navigate to numerology form if it's a numerology service
+                            if (name == 'Numerology') {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => NumerologyServiceFormScreen(
+                                    serviceName: title,
+                                    serviceImage: img,
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  BrandColors.alabaster.withValues(alpha: 0.15),
+                                  BrandColors.alabaster.withValues(alpha: 0.08),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: BrandColors.alabaster.withValues(alpha: 0.25),
+                                width: 1.5,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: BrandColors.codGrey.withValues(alpha: 0.2),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 110,
+                                height: 110,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: const Color(0xFFFFD85E),
+                                    width: 2,
+                                  ),
+                                ),
+                                child: ClipOval(
+                                    child: (isValidImageUrl(img))
+                                      ? Image.network(
+                                          img,
+                                          fit: BoxFit.cover,
+                                          filterQuality: FilterQuality.low,
+                                          gaplessPlayback: true,
+                                          frameBuilder:
+                                              (ctx, child, frame, syncLoaded) =>
+                                                  AnimatedOpacity(
+                                                    opacity:
+                                                        (syncLoaded || frame != null)
+                                                        ? 1
+                                                        : 0,
+                                                    duration: const Duration(
+                                                      milliseconds: 280,
+                                                    ),
+                                                    curve: Curves.easeOut,
+                                                    child: child,
+                                                  ),
+                                          loadingBuilder: (ctx, child, prog) {
+                                            if (prog == null) return child;
+                                            return Container(
+                                              decoration: const BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    Color(0x4030012F),
+                                                    Color(0x407E0562),
+                                                    Color(0x20F9751E),
+                                                  ],
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          errorBuilder: (ctx, err, st) {
+                                            return Container(
+                                              decoration: const BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    Color(0x8030012F),
+                                                    Color(0x807E0562),
+                                                    Color(0x40F9751E),
+                                                  ],
+                                                ),
+                                              ),
+                                              alignment: Alignment.center,
+                                              child: const Icon(
+                                                Icons.healing,
+                                                color: Colors.white70,
+                                              ),
+                                            );
+                                          },
+                                        )
+                                      : Container(
+                                          decoration: const BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                Color(0x8030012F),
+                                                Color(0x807E0562),
+                                                Color(0x40F9751E),
+                                              ],
+                                            ),
+                                          ),
+                                          alignment: Alignment.center,
+                                          child: const Icon(
+                                            Icons.healing,
+                                            color: Colors.white70,
+                                          ),
+                                        ),
                                 ),
                               ),
-                            );
-                          }
-                        },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                BrandColors.alabaster.withValues(alpha: 0.15),
-                                BrandColors.alabaster.withValues(alpha: 0.08),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(
-                              color: BrandColors.alabaster.withValues(alpha: 0.25),
-                              width: 1.5,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: BrandColors.codGrey.withValues(alpha: 0.2),
-                                blurRadius: 10,
-                                offset: const Offset(0, 5),
+                              const SizedBox(height: 12),
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: tt.titleSmall?.copyWith(
+                                  color: BrandColors.alabaster,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
+                              const SizedBox(height: 6),
+                              priceText.isEmpty
+                                  ? const SizedBox.shrink()
+                                  : Text(
+                                      priceText,
+                                      textAlign: TextAlign.center,
+                                      style: tt.bodySmall?.copyWith(
+                                        color: BrandColors.ecstasy,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                             ],
                           ),
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 110,
-                              height: 110,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: const Color(0xFFFFD85E),
-                                  width: 2,
-                                ),
-                              ),
-                              child: ClipOval(
-                                child: Image.network(
-                                  img,
-                                  fit: BoxFit.cover,
-                                  filterQuality: FilterQuality.low,
-                                  gaplessPlayback: true,
-                                  frameBuilder:
-                                      (ctx, child, frame, syncLoaded) =>
-                                          AnimatedOpacity(
-                                            opacity:
-                                                (syncLoaded || frame != null)
-                                                ? 1
-                                                : 0,
-                                            duration: const Duration(
-                                              milliseconds: 280,
-                                            ),
-                                            curve: Curves.easeOut,
-                                            child: child,
-                                          ),
-                                  loadingBuilder: (ctx, child, prog) {
-                                    if (prog == null) return child;
-                                    return Container(
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            Color(0x4030012F),
-                                            Color(0x407E0562),
-                                            Color(0x20F9751E),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  errorBuilder: (ctx, err, st) {
-                                    return Container(
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            Color(0x8030012F),
-                                            Color(0x807E0562),
-                                            Color(0x40F9751E),
-                                          ],
-                                        ),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: const Icon(
-                                        Icons.healing,
-                                        color: Colors.white70,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: tt.titleSmall?.copyWith(
-                                color: BrandColors.alabaster,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            priceText.isEmpty
-                                ? const SizedBox.shrink()
-                                : Text(
-                                    priceText,
-                                    textAlign: TextAlign.center,
-                                    style: tt.bodySmall?.copyWith(
-                                      color: BrandColors.ecstasy,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                          ],
-                        ),
-                        ),
-                      );
-                    }, childCount: subs.length),
-                  ),
-                );
-              },
+                          ),
+                        );
+                      }, childCount: subs.length),
+                    ),
+                  );
+                },
+              ),
+            // Extra bottom spacing to avoid RenderFlex overflow on small viewports
+            SliverToBoxAdapter(
+              child: SizedBox(height: MediaQuery.of(context).viewPadding.bottom + 64),
             ),
           ],
             ),

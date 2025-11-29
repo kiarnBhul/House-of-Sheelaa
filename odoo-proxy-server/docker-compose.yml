@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  odoo-proxy:
+    build: .
+    image: your_dockerhub_username/odoo-proxy:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # Set any Odoo proxy environment variables here (if your server uses env vars)
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"

@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../secure/crypto_helper.dart';
 
 class OdooConfig {
   static const String _keyBaseUrl = 'odoo_base_url';
@@ -163,6 +165,78 @@ class OdooConfig {
     if (sessionIdValue != null) {
       sessionId = sessionIdValue;
       await prefs.setString(_keySessionId, sessionIdValue);
+    }
+  }
+
+  /// Save a copy of the Odoo configuration to Firestore so it can be restored
+  /// across devices and app installs. NOTE: this stores API keys / passwords
+  /// in Firestore (project-owned). If you need stronger security, consider
+  /// encrypting these values before saving.
+  static Future<bool> saveToFirestore({String docId = 'odoo_config'}) async {
+    try {
+      // Encrypt sensitive fields before saving
+      final encApiKey = apiKey.isNotEmpty ? await CryptoHelper.encryptString(apiKey) : null;
+      final encPassword = password.isNotEmpty ? await CryptoHelper.encryptString(password) : null;
+      final encSession = sessionId != null && sessionId!.isNotEmpty ? await CryptoHelper.encryptString(sessionId!) : null;
+
+      final data = <String, dynamic>{
+        'baseUrl': baseUrl,
+        'database': database,
+        'apiKey': encApiKey,
+        'username': username,
+        'password': encPassword,
+        'proxyUrl': proxyUrl,
+        'uid': uid,
+        'sessionId': encSession,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      await FirebaseFirestore.instance.collection('app_settings').doc(docId).set(data, SetOptions(merge: true));
+      if (kDebugMode) print('[OdooConfig] saved config to Firestore doc=$docId');
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('[OdooConfig] failed to save to Firestore: $e');
+      return false;
+    }
+  }
+
+  /// Load Odoo configuration from Firestore. If found, persist to local
+  /// SharedPreferences via `saveConfig` so the app can use it offline.
+  static Future<bool> loadFromFirestore({String docId = 'odoo_config'}) async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('app_settings').doc(docId).get();
+      if (!doc.exists) return false;
+      final data = doc.data();
+      if (data == null) return false;
+
+      final baseUrlValue = data['baseUrl'] as String?;
+      final databaseValue = data['database'] as String?;
+      final apiKeyValueEnc = data['apiKey'] as String?;
+      final usernameValue = data['username'] as String?;
+      final passwordValueEnc = data['password'] as String?;
+      final proxyUrlValue = data['proxyUrl'] as String?;
+      final uidValue = (data['uid'] is int) ? data['uid'] as int : (data['uid'] is String ? int.tryParse(data['uid']) : null);
+      final sessionIdValueEnc = data['sessionId'] as String?;
+
+      // Decrypt sensitive fields if present
+      final apiKeyValue = apiKeyValueEnc != null ? await CryptoHelper.decryptString(apiKeyValueEnc) : null;
+      final passwordValue = passwordValueEnc != null ? await CryptoHelper.decryptString(passwordValueEnc) : null;
+      final sessionIdValue = sessionIdValueEnc != null ? await CryptoHelper.decryptString(sessionIdValueEnc) : null;
+
+      await saveConfig(
+        baseUrlValue: baseUrlValue,
+        databaseValue: databaseValue,
+        apiKeyValue: apiKeyValue,
+        usernameValue: usernameValue,
+        passwordValue: passwordValue,
+        proxyUrlValue: proxyUrlValue,
+        uidValue: uidValue,
+        sessionIdValue: sessionIdValue,
+      );
+      if (kDebugMode) print('[OdooConfig] loaded config from Firestore doc=$docId');
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('[OdooConfig] failed to load from Firestore: $e');
+      return false;
     }
   }
 

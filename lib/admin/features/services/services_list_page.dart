@@ -30,7 +30,7 @@ class ServicesListPage extends StatefulWidget {
 // Pre-build widgets for better performance
 
 class _ServicesListPageState extends State<ServicesListPage> {
-  List<ServiceItem> _items = [
+  final List<ServiceItem> _items = [
     ServiceItem(
       id: '1',
       name: 'Astrology Consultation',

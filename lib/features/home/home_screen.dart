@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import 'package:house_of_sheelaa/features/auth/state/auth_state.dart';
 import 'package:house_of_sheelaa/theme/brand_theme.dart';
 import 'package:house_of_sheelaa/features/services/service_detail_screen.dart';
+import 'package:house_of_sheelaa/core/odoo/odoo_state.dart';
+import 'package:house_of_sheelaa/core/models/odoo_models.dart';
 import 'package:house_of_sheelaa/features/store/shop_screen_new.dart';
 import 'package:house_of_sheelaa/features/store/cart_screen.dart';
 import 'package:house_of_sheelaa/features/store/state/cart_state.dart';
@@ -13,7 +15,6 @@ import 'package:house_of_sheelaa/features/policies/privacy_policy_screen.dart';
 import 'package:house_of_sheelaa/features/policies/refund_policy_screen.dart';
 import 'package:house_of_sheelaa/features/policies/shipping_policy_screen.dart';
 import 'package:house_of_sheelaa/features/events/events_screen.dart';
-import 'package:house_of_sheelaa/features/admin/odoo_config_screen.dart';
 
 // Improved, modern and cleaner HomeScreen design.
 // - Replaced external carousel dependency with native PageView
@@ -59,6 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
           "https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=1200&q=80",
     },
   ];
+
+  // If Odoo is configured and provides events, the UI will prefer those.
 
   final List<Map<String, dynamic>> _topConsultants = const [
     {
@@ -560,16 +563,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildEventsCarousel() {
+    final odooState = context.watch<OdooState>();
+    final odooEvents = odooState.events;
+    final sourceEvents = odooEvents.isNotEmpty
+        ? odooEvents.map((e) => {
+            'title': e.name,
+            'subtitle': e.description ?? '',
+            'date': e.dateBegin?.toIso8601String() ?? '',
+            'image': e.imageUrl ?? 'assets/images/background.jpg',
+          }).toList()
+        : _events;
+
     return Column(
       children: [
         SizedBox(
           height: 230,
           child: PageView.builder(
             controller: _pageController,
-            itemCount: _events.length,
+            itemCount: sourceEvents.length,
             onPageChanged: (index) => setState(() => _carouselIndex = index),
             itemBuilder: (ctx, idx) {
-              final e = _events[idx];
+              final e = sourceEvents[idx];
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                 child: GestureDetector(
@@ -640,8 +654,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  e['title']!,
+                                    Text(
+                                      e['title'] ?? '',
                                   style: const TextStyle(
                                     color: BrandColors.alabaster,
                                     fontSize: 20,
@@ -656,8 +670,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                Text(
-                                  e['subtitle']!,
+                                        Text(
+                                          e['subtitle'] ?? '',
                                   style: TextStyle(
                                     color: BrandColors.alabaster.withValues(
                                       alpha: 0.95,
@@ -709,7 +723,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                           ),
                                           const SizedBox(width: 6),
                                           Text(
-                                            e['date']!,
+                                            e['date'] ?? '',
                                             style: const TextStyle(
                                               color: BrandColors.alabaster,
                                               fontSize: 13,
@@ -1145,231 +1159,130 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildServicesSection(BuildContext context) {
-    final cats = const [
-      {
-        "name": "Numerology",
-        "subtitle": "Power of numbers",
-        "image": "https://picsum.photos/seed/numerology/800/600",
-        "icon": Icons.numbers,
-        "subs": [
-          {
-            "name": "Lucky Name Correction",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/num_luckyname/300/300",
-          },
-          {
-            "name": "Business Name Correction",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/num_businessname/300/300",
-          },
-          {
-            "name": "Baby Name Correction",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/num_babyname/300/300",
-          },
-          {
-            "name": "Lucky Letters for Baby Name",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/num_luckyletters/300/300",
-          },
-        ],
-      },
-      {
-        "name": "Healing",
-        "subtitle": "Energy & chakra healing",
-        "image": "https://picsum.photos/seed/healing/800/600",
-        "icon": Icons.healing,
-        "subs": [
-          {
-            "name": "Karma Release",
-            "priceMin": 3500,
-            "priceMax": 4600,
-            "image": "https://picsum.photos/seed/healing_karma/300/300",
-          },
-          {
-            "name": "Lama Fera",
-            "priceMin": 600,
-            "priceMax": 1950,
-            "image": "https://picsum.photos/seed/healing_lamafera/300/300",
-          },
-          {
-            "name": "Manifestation Healing",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/healing_manifestation/300/300",
-          },
-          {
-            "name": "Sacred Geometry Healing",
-            "priceMin": 600,
-            "priceMax": 1950,
-            "image":
-                "https://picsum.photos/seed/healing_sacredgeometry/300/300",
-          },
-          {
-            "name": "Sapphire Ray Healing",
-            "priceMin": 600,
-            "priceMax": 1950,
-            "image": "https://picsum.photos/seed/healing_sapphire/300/300",
-          },
-          {
-            "name": "Trauma Healing",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/healing_trauma/300/300",
-          },
-          {
-            "name": "Golden Ray of Christ Healing",
-            "price": 3500,
-            "durationMin": 25,
-            "image": "https://picsum.photos/seed/healing_goldenray/300/300",
-          },
-          {
-            "name": "5th Dimensional Healing",
-            "priceMin": 600,
-            "priceMax": 12600,
-            "image": "https://picsum.photos/seed/healing_5d/300/300",
-          },
-          {
-            "name": "Chakra Healing",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/healing_chakra/300/300",
-          },
-          {
-            "name": "Cutting Chords Healing",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/healing_cuttingchords/300/300",
-          },
-          {
-            "name": "Emotional Healing – Merkaba",
-            "priceMin": 3600,
-            "priceMax": 12600,
-            "image": "https://picsum.photos/seed/healing_merkaba/300/300",
-          },
-          {
-            "name": "Lemurian Healing",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/healing_lemurian/300/300",
-          },
-          {
-            "name": "Psychic Healing",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/healing_psychic/300/300",
-          },
-          {
-            "name": "Sunday 5D Healing",
-            "price": 600,
-            "image": "https://picsum.photos/seed/healing_sunday5d/300/300",
-          },
-        ],
-      },
-      {
-        "name": "Rituals",
-        "subtitle": "Traditional puja & remedies",
-        "image": "https://picsum.photos/seed/rituals/800/600",
-        "icon": Icons.auto_fix_high,
-        "subs": [
-          {
-            "name": "Banishing Lemon Ritual (Without Feedback)",
-            "price": 600,
-            "image":
-                "https://picsum.photos/seed/ritual_banishing_basic/300/300",
-          },
-          {
-            "name": "Intensive Banishing Lemon Ritual",
-            "price": 1950,
-            "image":
-                "https://picsum.photos/seed/ritual_banishing_intensive/300/300",
-          },
-          {
-            "name": "Advanced Banishing Lemon Ritual",
-            "price": 3500,
-            "image":
-                "https://picsum.photos/seed/ritual_banishing_advanced/300/300",
-          },
-        ],
-      },
-      {
-        "name": "Card Reading",
-        "subtitle": "Tarot & oracle guidance",
-        "image": "https://picsum.photos/seed/cards/800/600",
-        "icon": Icons.menu_book,
-        "subs": [
-          {
-            "name": "Tarot",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/card_tarot/300/300",
-          },
-          {
-            "name": "Decoding Vision",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/card_decoding/300/300",
-          },
-          {
-            "name": "Past Life Reading",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/card_pastlife/300/300",
-          },
-          {
-            "name": "Psychic Reading",
-            "price": 3500,
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/card_psychic/300/300",
-          },
-        ],
-      },
-      {
-        "name": "Other Services",
-        "subtitle": "Palmistry, vastu & more",
-        "image": "https://picsum.photos/seed/otherservices/800/600",
-        "icon": Icons.star_border,
-        "subs": [
-          {
-            "name": "Feng Shui & Vaastu",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/other_vastu/300/300",
-          },
-          {
-            "name": "Astrology",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/other_astrology/300/300",
-          },
-          {
-            "name": "Akashic Records",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/other_akashic/300/300",
-          },
-          {
-            "name": "Aura Report + Explanation Session",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/other_aura_report/300/300",
-          },
-          {
-            "name": "Aura Photography – Report",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/other_aura_photo/300/300",
-          },
-        ],
-      },
-      {
-        "name": "Specials",
-        "subtitle": "Exclusive offerings",
-        "image": "https://picsum.photos/seed/specials/800/600",
-        "icon": Icons.local_fire_department,
-        "subs": [
-          {
-            "name": "Deliverance",
-            "durationMin": 15,
-            "image": "https://picsum.photos/seed/special_deliverance/300/300",
-          },
-        ],
-      },
-    ];
+    final odooState = context.watch<OdooState>();
+    final bool hasCategories = odooState.isAuthenticated && odooState.categories.isNotEmpty;
+    final cats = hasCategories
+            ? odooState.categories.map((cat) {
+            // find services under this category (match internal category or public ecommerce categories)
+            final services = odooState.services.where((s) {
+              final byPublic = s.publicCategoryIds != null && s.publicCategoryIds!.contains(cat.id);
+              final byInternal = s.categoryId != null && s.categoryId == cat.id;
+              return byPublic || byInternal;
+            }).toList();
+
+            // also find products (goods) attached to this ecommerce category
+            final products = odooState.products.where((p) {
+              final byPublic = p.publicCategoryIds != null && p.publicCategoryIds!.contains(cat.id);
+              final byInternal = p.categoryId != null && p.categoryId == cat.id;
+              return byPublic || byInternal;
+            }).toList();
+
+            // combine services and products into subs (products will have price and no duration)
+            final subs = <Map<String, dynamic>>[];
+            for (var s in services) {
+              subs.add({
+                'type': 'service',
+                'id': s.id,
+                'name': s.name,
+                'durationMin': null,
+                'price': s.price,
+                'image': s.imageUrl ?? 'assets/images/background.jpg',
+              });
+            }
+            for (var p in products) {
+              subs.add({
+                'type': 'product',
+                'id': p.id,
+                'name': p.name,
+                'durationMin': null,
+                'price': p.price,
+                'image': p.imageUrl ?? 'assets/images/background.jpg',
+              });
+            }
+
+            return {
+              'name': cat.name,
+              'subtitle': '',
+              'id': cat.id,
+              'image': cat.imageUrl ?? (subs.isNotEmpty ? subs.first['image'] as String : 'assets/images/background.jpg'),
+              'icon': Icons.miscellaneous_services_rounded,
+              'subs': subs,
+            };
+          }).toList()
+        : const [
+            {
+              "name": "Healing",
+              "subtitle": "Energy Healing & Restoration",
+              "image": "https://picsum.photos/seed/healing/800/600",
+              "icon": Icons.healing,
+              "subs": [
+                {"name": "Reiki Session", "durationMin": 30, "image": "https://picsum.photos/seed/reiki/300/300"},
+              ],
+            },
+            {
+              "name": "Card Reading",
+              "subtitle": "Tarot & Oracle Readings",
+              "image": "https://picsum.photos/seed/cards/800/600",
+              "icon": Icons.style,
+              "subs": [
+                {"name": "Tarot Reading", "durationMin": 20, "image": "https://picsum.photos/seed/tarot/300/300"},
+              ],
+            },
+            {
+              "name": "Numerology",
+              "subtitle": "Power of numbers",
+              "image": "https://picsum.photos/seed/numerology/800/600",
+              "icon": Icons.numbers,
+              "subs": [
+                {"name": "Lucky Name Correction", "durationMin": 15, "image": "https://picsum.photos/seed/num_luckyname/300/300"},
+              ],
+            },
+            {
+              "name": "Astrology",
+              "subtitle": "Birth Chart & Predictions",
+              "image": "https://picsum.photos/seed/astrology/800/600",
+              "icon": Icons.public,
+              "subs": [
+                {"name": "Kundali Reading", "durationMin": 30, "image": "https://picsum.photos/seed/kundali/300/300"},
+              ],
+            },
+            {
+              "name": "Vastu",
+              "subtitle": "Home & Space Alignment",
+              "image": "https://picsum.photos/seed/vastu/800/600",
+              "icon": Icons.house,
+              "subs": [
+                {"name": "Vastu Consultation", "durationMin": 45, "image": "https://picsum.photos/seed/vastu_consult/300/300"},
+              ],
+            },
+            {
+              "name": "Meditation",
+              "subtitle": "Guided Sessions & Practices",
+              "image": "https://picsum.photos/seed/meditation/800/600",
+              "icon": Icons.self_improvement,
+              "subs": [
+                {"name": "Guided Meditation", "durationMin": 20, "image": "https://picsum.photos/seed/meditate/300/300"},
+              ],
+            },
+            {
+              "name": "Crystal Healing",
+              "subtitle": "Stones & Balancing",
+              "image": "https://picsum.photos/seed/crystal/800/600",
+              "icon": Icons.auto_awesome,
+              "subs": [
+                {"name": "Crystal Layout", "durationMin": 30, "image": "https://picsum.photos/seed/crystal_layout/300/300"},
+              ],
+            },
+            {
+              "name": "Herbal Remedies",
+              "subtitle": "Natural Remedies & Oils",
+              "image": "https://picsum.photos/seed/herbal/800/600",
+              "icon": Icons.emoji_nature,
+              "subs": [
+                {"name": "Herbal Consultation", "durationMin": 25, "image": "https://picsum.photos/seed/herbal_consult/300/300"},
+              ],
+            },
+          ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1847,6 +1760,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStoreSection(BuildContext context) {
+    final odooState = context.watch<OdooState>();
+    final bool hasOdooProducts = odooState.isAuthenticated && odooState.products.isNotEmpty;
+    final sourceProducts = hasOdooProducts
+        ? odooState.products
+        : _products.map((p) => OdooProduct(
+            id: -1,
+            name: p['name']!,
+            description: null,
+            price: double.tryParse(p['price']!.replaceAll(RegExp(r'[^0-9\.]'), '')) ?? 0.0,
+          )).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1910,11 +1834,15 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: _outerPadding),
             scrollDirection: Axis.horizontal,
-            itemCount: _products.length,
+            itemCount: sourceProducts.length,
             separatorBuilder: (context, index) => const SizedBox(width: 12),
             itemBuilder: (ctx, i) {
-              final p = _products[i];
-              return _productCard(context, p);
+              final p = sourceProducts[i];
+              // p may be OdooProduct or our fallback OdooProduct stub
+              final name = p.name;
+              final price = p.price > 0 ? '₹${p.price.toStringAsFixed(0)}' : '₹0';
+              final image = p.imageUrl ?? 'assets/images/background.jpg';
+              return _productCard(context, {'name': name, 'price': price, 'image': image});
             },
           ),
         ),

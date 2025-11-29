@@ -241,7 +241,7 @@ class _ServicesEditPageState extends State<ServicesEditPage> {
                         Switch(
                           value: _active,
                           onChanged: (val) => setState(() => _active = val),
-                          activeColor: Colors.green,
+                          activeThumbColor: Colors.green,
                         ),
                       ],
                     ),
@@ -376,7 +376,9 @@ class _ServicesEditPageState extends State<ServicesEditPage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(widget.id == null ? 'Created "$name"' : 'Updated "$name"'),
+        content: Text(widget.id == null
+            ? 'Created "$name" — ₹${price.toStringAsFixed(0)}'
+            : 'Updated "$name" — ${active ? 'Active' : 'Inactive'} — ₹${price.toStringAsFixed(0)}'),
         backgroundColor: BrandColors.cardinalPink,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

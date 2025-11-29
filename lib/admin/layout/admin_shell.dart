@@ -15,7 +15,6 @@ class AdminShell extends StatefulWidget {
 class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateMixin {
   bool _isSidebarExpanded = true;
   late AnimationController _animationController;
-  late Animation<double> _animation;
 
   @override
   void initState() {
@@ -23,10 +22,6 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
-    );
-    _animation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
     );
     _animationController.forward();
   }
@@ -40,7 +35,6 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
-    final theme = Theme.of(context);
     final isMobile = MediaQuery.of(context).size.width < 768;
 
     return Scaffold(
@@ -334,7 +328,7 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AdminAuthState>();
-    final theme = Theme.of(context);
+    
 
     return Container(
       height: 70,

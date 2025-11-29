@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint;
 import 'package:http/http.dart' as http;
 import 'odoo_config.dart';
 import '../../core/models/odoo_models.dart';
@@ -323,6 +323,7 @@ Current error: $errorString''',
     required List<dynamic> args,
     Map<String, dynamic>? kwargs,
   }) async {
+    // Ensure we're authenticated or attempt to authenticate silently
     if (!OdooConfig.isAuthenticated) {
       final authResult = await authenticate();
       if (!authResult.success) {
@@ -330,48 +331,76 @@ Current error: $errorString''',
       }
     }
 
-    try {
-      // Build headers
-      final headers = _getRequestHeaders();
+    // Try the RPC call, but if it fails due to authentication/session expiry,
+    // attempt to re-authenticate once and retry the RPC.
+    int attempts = 0;
+    while (attempts < 2) {
+      attempts += 1;
+      try {
+        // Build headers
+        final headers = _getRequestHeaders();
 
-      if (OdooConfig.sessionId != null) {
-        headers['Cookie'] = 'session_id=${OdooConfig.sessionId}';
-      }
-
-      final response = await http.post(
-        Uri.parse(OdooConfig.jsonRpcUrl),
-        headers: headers,
-        body: jsonEncode({
-          'jsonrpc': '2.0',
-          'method': 'call',
-          'params': {
-            'service': 'object',
-            'method': 'execute_kw',
-            'args': [
-              OdooConfig.database,
-              OdooConfig.uid ?? 1,
-              OdooConfig.apiKey.isNotEmpty ? OdooConfig.apiKey : (OdooConfig.password.isNotEmpty ? OdooConfig.password : ''),
-              model,
-              method,
-              args,
-              kwargs ?? {},
-            ],
-          },
-          'id': DateTime.now().millisecondsSinceEpoch,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['error'] != null) {
-          throw Exception('Odoo RPC Error: ${data['error']}');
+        if (OdooConfig.sessionId != null) {
+          headers['Cookie'] = 'session_id=${OdooConfig.sessionId}';
         }
-        return data['result'];
+
+        final response = await http.post(
+          Uri.parse(OdooConfig.jsonRpcUrl),
+          headers: headers,
+          body: jsonEncode({
+            'jsonrpc': '2.0',
+            'method': 'call',
+            'params': {
+              'service': 'object',
+              'method': 'execute_kw',
+              'args': [
+                OdooConfig.database,
+                OdooConfig.uid ?? 1,
+                OdooConfig.apiKey.isNotEmpty ? OdooConfig.apiKey : (OdooConfig.password.isNotEmpty ? OdooConfig.password : ''),
+                model,
+                method,
+                args,
+                kwargs ?? {},
+              ],
+            },
+            'id': DateTime.now().millisecondsSinceEpoch,
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data['error'] != null) {
+            final err = data['error'];
+            final errMsg = err is Map && err['message'] != null ? err['message'].toString() : err.toString();
+            // If error indicates an authentication/session issue, try to re-authenticate and retry once
+            if (errMsg.toLowerCase().contains('access denied') || errMsg.toLowerCase().contains('session') || errMsg.toLowerCase().contains('authentication')) {
+              if (attempts < 2) {
+                final authResult = await authenticate();
+                if (authResult.success) {
+                  // continue to retry the RPC
+                  continue;
+                }
+              }
+              throw Exception('Odoo RPC Error: $errMsg');
+            }
+            throw Exception('Odoo RPC Error: $errMsg');
+          }
+          return data['result'];
+        }
+        throw Exception('HTTP Error: ${response.statusCode}');
+      } catch (e) {
+        // If this was an auth failure and we haven't retried, try authenticate and retry
+        final msg = e.toString().toLowerCase();
+        if ((msg.contains('authentication') || msg.contains('access denied') || msg.contains('session')) && attempts < 2) {
+          final authResult = await authenticate();
+          if (authResult.success) {
+            continue; // retry RPC
+          }
+        }
+        throw Exception('RPC call failed: $e');
       }
-      throw Exception('HTTP Error: ${response.statusCode}');
-    } catch (e) {
-      throw Exception('RPC call failed: $e');
     }
+    throw Exception('RPC call failed after retries');
   }
 
   /// Search and read records
@@ -415,17 +444,22 @@ Current error: $errorString''',
     try {
       List<List<dynamic>> domain = [
         ['sale_ok', '=', true],
-        ['type', '=', 'product'],
+        // include both product and service types so services can be discovered when present
+        ['type', 'in', ['product', 'service']],
       ];
 
       if (categories != null && categories.isNotEmpty) {
         domain.add(['categ_id', 'in', categories]);
       }
 
+      // For services there might not be qty_available; only apply inStock filter when explicitly requested
       if (inStock) {
         domain.add(['qty_available', '>', 0]);
       }
 
+      if (kDebugMode) {
+        debugPrint('[OdooApi] getProducts calling jsonRpcUrl=${OdooConfig.jsonRpcUrl} domain=$domain inStock=$inStock categories=$categories');
+      }
       final records = await searchRead(
         model: OdooConfig.productTemplateModel,
         domain: domain,
@@ -435,14 +469,29 @@ Current error: $errorString''',
           'description',
           'list_price',
           'categ_id',
+          'public_categ_ids',
           'image_1920',
           'qty_available',
           'default_code',
           'barcode',
+          'type',
         ],
       );
 
-      return records.map((record) => OdooProduct.fromJson(record)).toList();
+      if (kDebugMode) {
+        debugPrint('[OdooApi] getProducts returned ${records.length} records');
+        if (records.isNotEmpty) debugPrint('[OdooApi] getProducts sample=${records.first}');
+      }
+
+      final parsed = <OdooProduct>[];
+      for (var record in records) {
+        try {
+          parsed.add(OdooProduct.fromJson(record));
+        } catch (e) {
+          if (kDebugMode) debugPrint('[OdooApi] getProducts parse failed for record id=${record['id']}: $e');
+        }
+      }
+      return parsed;
     } catch (e) {
       throw Exception('Failed to fetch products: $e');
     }
@@ -451,26 +500,107 @@ Current error: $errorString''',
   /// Get services from Odoo
   Future<List<OdooService>> getServices() async {
     try {
+      final domain = [
+        ['sale_ok', '=', true],
+        ['type', '=', 'service'],
+      ];
+      if (kDebugMode) {
+        debugPrint('[OdooApi] getServices calling jsonRpcUrl=${OdooConfig.jsonRpcUrl} domain=$domain');
+      }
       final records = await searchRead(
         model: OdooConfig.productTemplateModel,
-        domain: [
-          ['sale_ok', '=', true],
-          ['type', '=', 'service'],
-        ],
+        domain: domain,
         fields: [
           'id',
           'name',
           'description',
           'list_price',
           'categ_id',
+          'public_categ_ids',
           'image_1920',
           'default_code',
         ],
       );
+      if (kDebugMode) {
+        debugPrint('[OdooApi] getServices returned ${records.length} records from ${OdooConfig.productTemplateModel}');
+        if (records.isNotEmpty) debugPrint('[OdooApi] getServices sample=${records.first}');
+      }
 
-      return records.map((record) => OdooService.fromJson(record)).toList();
+      // Fallback: try product.product if product.template returned nothing
+      if (records.isEmpty) {
+        if (kDebugMode) debugPrint('[OdooApi] getServices fallback: trying ${OdooConfig.productModel}');
+        final alt = await searchRead(
+          model: OdooConfig.productModel,
+          domain: domain,
+          fields: [
+            'id', 'name', 'description', 'list_price', 'categ_id', 'public_categ_ids', 'image_1920', 'default_code', 'type'
+          ],
+        );
+        if (kDebugMode) debugPrint('[OdooApi] getServices fallback returned ${alt.length} records from ${OdooConfig.productModel}');
+        if (alt.isNotEmpty) {
+          return alt.map((record) => OdooService.fromJson(record)).toList();
+        }
+      }
+
+      final parsed = <OdooService>[];
+      for (var record in records) {
+        try {
+          parsed.add(OdooService.fromJson(record));
+        } catch (e) {
+          if (kDebugMode) debugPrint('[OdooApi] getServices parse failed for record id=${record['id']}: $e');
+        }
+      }
+      // Fallback: try product.product if product.template returned nothing
+      if (parsed.isEmpty) {
+        if (kDebugMode) debugPrint('[OdooApi] getServices fallback: trying ${OdooConfig.productModel}');
+        final alt = await searchRead(
+          model: OdooConfig.productModel,
+          domain: domain,
+          fields: [
+            'id', 'name', 'description', 'list_price', 'categ_id', 'public_categ_ids', 'image_1920', 'default_code', 'type'
+          ],
+        );
+        final altParsed = <OdooService>[];
+        for (var record in alt) {
+          try {
+            altParsed.add(OdooService.fromJson(record));
+          } catch (e) {
+            if (kDebugMode) debugPrint('[OdooApi] getServices fallback parse failed for record id=${record['id']}: $e');
+          }
+        }
+        if (altParsed.isNotEmpty) return altParsed;
+      }
+
+      return parsed;
     } catch (e) {
       throw Exception('Failed to fetch services: $e');
+    }
+  }
+
+  /// Get ecommerce categories from Odoo (tries public category then fallback)
+  Future<List<OdooCategory>> getCategories() async {
+    try {
+      // First try the public ecommerce category model (used by Website/eCommerce)
+      final records = await searchRead(
+        model: 'product.public.category',
+        fields: ['id', 'name', 'parent_id', 'image_1920'],
+        order: 'id asc',
+      );
+
+      if (records.isNotEmpty) {
+        return records.map((r) => OdooCategory.fromJson(r)).toList();
+      }
+
+      // Fallback to product.category (older / alternate model)
+      final fallback = await searchRead(
+        model: 'product.category',
+        fields: ['id', 'name', 'parent_id', 'image_1920'],
+        order: 'id asc',
+      );
+
+      return fallback.map((r) => OdooCategory.fromJson(r)).toList();
+    } catch (e) {
+      throw Exception('Failed to fetch categories: $e');
     }
   }
 
@@ -554,6 +684,108 @@ Current error: $errorString''',
       return records.map((record) => OdooStock.fromJson(record)).toList();
     } catch (e) {
       throw Exception('Failed to fetch stock: $e');
+    }
+  }
+
+  /// Generic create record helper
+  Future<dynamic> createRecord({required String model, required Map<String, dynamic> values}) async {
+    try {
+      final result = await executeRpc(
+        model: model,
+        method: 'create',
+        args: [values],
+      );
+      return result;
+    } catch (e) {
+      throw Exception('Create failed: $e');
+    }
+  }
+
+  /// Generic update (write) helper
+  Future<bool> updateRecord({required String model, required int id, required Map<String, dynamic> values}) async {
+    try {
+      final result = await executeRpc(
+        model: model,
+        method: 'write',
+        args: [ [id], values ],
+      );
+      return result == true || result == 1;
+    } catch (e) {
+      throw Exception('Update failed: $e');
+    }
+  }
+
+  /// Generic delete (unlink) helper
+  Future<bool> deleteRecord({required String model, required int id}) async {
+    try {
+      final result = await executeRpc(
+        model: model,
+        method: 'unlink',
+        args: [ [id] ],
+      );
+      return result == true || result == 1;
+    } catch (e) {
+      throw Exception('Delete failed: $e');
+    }
+  }
+
+  /// Category-specific helpers
+  Future<int?> createCategory(Map<String, dynamic> values) async {
+    try {
+      final id = await createRecord(model: 'product.public.category', values: values);
+      if (id == null) return null;
+      return id as int;
+    } catch (e) {
+      // fallback try product.category
+      try {
+        final id = await createRecord(model: 'product.category', values: values);
+        return id as int?;
+      } catch (e2) {
+        throw Exception('Create category failed: $e / $e2');
+      }
+    }
+  }
+
+  Future<bool> updateCategory(int id, Map<String, dynamic> values) async {
+    try {
+      return await updateRecord(model: 'product.public.category', id: id, values: values);
+    } catch (e) {
+      // try fallback
+      return await updateRecord(model: 'product.category', id: id, values: values);
+    }
+  }
+
+  Future<bool> deleteCategory(int id) async {
+    try {
+      return await deleteRecord(model: 'product.public.category', id: id);
+    } catch (e) {
+      return await deleteRecord(model: 'product.category', id: id);
+    }
+  }
+
+  /// Product CRUD helpers (using product.template)
+  Future<int?> createProductRecord(Map<String, dynamic> values) async {
+    try {
+      final id = await createRecord(model: OdooConfig.productTemplateModel, values: values);
+      return id as int?;
+    } catch (e) {
+      throw Exception('Create product failed: $e');
+    }
+  }
+
+  Future<bool> updateProductRecord(int id, Map<String, dynamic> values) async {
+    try {
+      return await updateRecord(model: OdooConfig.productTemplateModel, id: id, values: values);
+    } catch (e) {
+      throw Exception('Update product failed: $e');
+    }
+  }
+
+  Future<bool> deleteProductRecord(int id) async {
+    try {
+      return await deleteRecord(model: OdooConfig.productTemplateModel, id: id);
+    } catch (e) {
+      throw Exception('Delete product failed: $e');
     }
   }
 }
