@@ -1,9 +1,5 @@
 const express = require('express');
-const cors = require('cors');
-const { createProxyMiddleware } = require('http-proxy-middleware');
-
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Enable CORS for all routes
 app.use(cors({
@@ -18,9 +14,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Odoo Proxy Server is running' });
-});
+app.get('/health', (req, res) => res.json({ ok: true }));
 
 // Proxy middleware for Odoo requests
 app.use('/api/odoo', (req, res, next) => {
@@ -94,12 +88,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Odoo Proxy Server running on http://localhost:${PORT}`);
-  console.log(`📡 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔗 Proxy endpoint: http://localhost:${PORT}/api/odoo/*`);
-  console.log(`\n💡 To use this proxy, set Proxy Server URL in Flutter app to: http://localhost:${PORT}/api/odoo`);
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`odoo-proxy server listening on ${HOST}:${PORT}`);
 });
 
 
