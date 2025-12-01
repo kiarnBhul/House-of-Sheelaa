@@ -1,6 +1,11 @@
 const express = require('express');
 const app = express();
-const cors = require('cors'); // Add this line at the top of the file
+const cors = require('cors');
+const helmet = require('helmet');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+
+// Basic security headers (disable CSP to avoid blocking devtools/inline scripts)
+app.use(helmet({ contentSecurityPolicy: false }));
 
 // Enable CORS for all routes
 app.use(cors({
@@ -16,6 +21,11 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// Simple root route
+app.get('/', (req, res) => {
+  res.type('text/plain').send('Odoo Proxy Server is running. Use /api/odoo/* endpoints.');
+});
 
 // Proxy middleware for Odoo requests
 app.use('/api/odoo', (req, res, next) => {

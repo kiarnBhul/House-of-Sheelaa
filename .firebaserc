@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "house-of-sheelaa"
-  }
+    "default": "house-of-sheelaa",
+    "starting": "house-of-sheelaa"
+  },
+  "targets": {},
+  "etags": {}
 }
