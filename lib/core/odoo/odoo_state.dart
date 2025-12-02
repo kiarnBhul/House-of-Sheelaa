@@ -38,19 +38,22 @@ class OdooState extends ChangeNotifier {
       try {
         final ok = await OdooConfig.loadFromFirestore();
         if (ok) {
-          // reload local flags
+          // reload local flags after Firestore fetch
+          await OdooConfig.loadConfig();
           _isAuthenticated = OdooConfig.isAuthenticated;
         }
       } catch (_) {}
     }
 
-    // Auto-connect to Odoo in background if configured
-    if (OdooConfig.isConfigured && !_isAuthenticated) {
-      // Try to authenticate silently in background
-      _autoConnect();
-    } else if (_isAuthenticated) {
-      // Load data if already authenticated
-      _loadDataInBackground();
+    // Auto-connect to Odoo in background if configured (even if not marked authenticated yet)
+    if (OdooConfig.isConfigured) {
+      if (!_isAuthenticated) {
+        // Try to authenticate silently in background
+        _autoConnect();
+      } else {
+        // Already authenticated — load data immediately
+        _loadDataInBackground();
+      }
     }
     
     notifyListeners();

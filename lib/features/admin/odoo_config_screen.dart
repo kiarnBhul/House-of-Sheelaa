@@ -101,11 +101,20 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
     setState(() => _isConnecting = false);
 
     if (success) {
+      // Save to Firestore automatically for persistence across devices
+      if (_persistRemote) {
+        try {
+          final docId = remoteDocId ?? 'odoo_config';
+          await OdooConfig.saveToFirestore(docId: docId);
+        } catch (_) {}
+      }
+      
       // Show immediate feedback and then refresh in background
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Successfully connected to Odoo!'),
+          content: const Text('Successfully connected to Odoo! Configuration saved.'),
           backgroundColor: BrandColors.ecstasy,
+          duration: const Duration(seconds: 3),
         ),
       );
       // Refresh data after successful connection
