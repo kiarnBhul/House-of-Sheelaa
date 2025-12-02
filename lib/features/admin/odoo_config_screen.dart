@@ -45,7 +45,7 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
       _passwordController.text = OdooConfig.password;
       _proxyUrlController.text = OdooConfig.proxyUrl;
       if (kIsWeb && _proxyUrlController.text.isEmpty) {
-        _proxyUrlController.text = 'http://localhost:3000/api/odoo';
+        _proxyUrlController.text = 'https://house-of-sheelaa-proxy-server.onrender.com/api/odoo';
       }
       _useApiKey = OdooConfig.apiKey.isNotEmpty;
     });
@@ -389,7 +389,7 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
                                   _buildTextField(
                                     controller: _proxyUrlController,
                                     label: 'Proxy Server URL (Optional)',
-                                    hint: 'http://localhost:3000/api/odoo',
+                                    hint: 'https://house-of-sheelaa-proxy-server.onrender.com/api/odoo',
                                     icon: Icons.cloud_sync_rounded,
                                     keyboardType: TextInputType.url,
                                     required: false,

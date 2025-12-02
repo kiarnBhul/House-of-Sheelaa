@@ -63,28 +63,23 @@ class OdooConfig {
 
   // Odoo API endpoints
   static String get authUrl {
-    if (kIsWeb && proxyUrl.isNotEmpty) {
-      // When using proxy, proxy server handles routing
+    if (proxyUrl.isNotEmpty) {
       final normalizedProxy = _normalizeProxyUrl(proxyUrl);
       final url = '$normalizedProxy/web/session/authenticate';
-      // Debug: Only print in debug mode to reduce console spam
       if (kDebugMode) {
         print('[OdooConfig] Using proxy for authUrl: $url');
       }
       return url;
     }
-    final directUrl = '${_normalizeUrl(baseUrl)}/web/session/authenticate';
-    return directUrl;
+    return '${_normalizeUrl(baseUrl)}/web/session/authenticate';
   }
+
   static String get jsonRpcUrl {
-    if (kIsWeb && proxyUrl.isNotEmpty) {
-      // When using proxy, proxy server handles routing
+    if (proxyUrl.isNotEmpty) {
       final normalizedProxy = _normalizeProxyUrl(proxyUrl);
-      final url = '$normalizedProxy/jsonrpc';
-      return url;
+      return '$normalizedProxy/jsonrpc';
     }
-    final directUrl = '${_normalizeUrl(baseUrl)}/jsonrpc';
-    return directUrl;
+    return '${_normalizeUrl(baseUrl)}/jsonrpc';
   }
   
   // Get the actual Odoo base URL (needed by proxy)
