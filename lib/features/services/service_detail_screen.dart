@@ -117,6 +117,17 @@ class ServiceDetailScreen extends StatelessWidget {
             });
           }
                 debugPrint('[ServiceDetail] services empty — used products fallback count=${fallback.length}');
+          // If both services and product fallback are empty, trigger a background refresh
+          if (built.isEmpty) {
+            debugPrint('[ServiceDetail] no matches for category id=$cid, requesting refresh…');
+            // kick off background loads without blocking UI
+            Future.microtask(() async {
+              try {
+                await odooState.loadServices();
+                await odooState.loadProducts(inStock: false);
+              } catch (_) {}
+            });
+          }
         }
 
         subs = built;

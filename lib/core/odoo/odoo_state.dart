@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'odoo_config.dart';
 import 'odoo_api_service.dart';
+import 'global_odoo_config_service.dart';
 import '../models/odoo_models.dart';
 
 class OdooState extends ChangeNotifier {
   final OdooApiService _apiService = OdooApiService();
+  final GlobalOdooConfigService _globalConfigService = GlobalOdooConfigService();
 
   bool _isLoading = false;
   bool _isAuthenticated = false;
@@ -31,27 +33,54 @@ class OdooState extends ChangeNotifier {
   }
 
   Future<void> _initialize() async {
+    debugPrint('[OdooState] Initializing...');
+    
+    // PRIORITY 1: Try to load global configuration from Firestore (for all users)
+    try {
+      debugPrint('[OdooState] Attempting to load global Odoo configuration...');
+      final hasGlobalConfig = await _globalConfigService.loadGlobalConfig();
+      
+      if (hasGlobalConfig) {
+        debugPrint('[OdooState] ✅ Global configuration loaded successfully');
+        // Reload local config to pick up the global settings
+        await OdooConfig.loadConfig();
+        _isAuthenticated = OdooConfig.isAuthenticated;
+        
+        // Auto-connect using global config
+        if (OdooConfig.isConfigured) {
+          debugPrint('[OdooState] Auto-connecting with global config...');
+          await _autoConnect();
+        }
+        notifyListeners();
+        return;
+      } else {
+        debugPrint('[OdooState] ⚠️ No global configuration found');
+      }
+    } catch (e) {
+      debugPrint('[OdooState] ❌ Error loading global config: $e');
+    }
+
+    // PRIORITY 2: Fall back to local configuration (for development/admin)
+    debugPrint('[OdooState] Falling back to local configuration...');
     await OdooConfig.loadConfig();
     _isAuthenticated = OdooConfig.isAuthenticated;
-    // If local config is missing, try to load from Firestore (remote persistent config)
+    
+    // If local config is missing, try user-specific Firestore config (legacy)
     if (!OdooConfig.isConfigured) {
       try {
         final ok = await OdooConfig.loadFromFirestore();
         if (ok) {
-          // reload local flags after Firestore fetch
           await OdooConfig.loadConfig();
           _isAuthenticated = OdooConfig.isAuthenticated;
         }
       } catch (_) {}
     }
 
-    // Auto-connect to Odoo in background if configured (even if not marked authenticated yet)
+    // Auto-connect to Odoo in background if configured
     if (OdooConfig.isConfigured) {
       if (!_isAuthenticated) {
-        // Try to authenticate silently in background
-        _autoConnect();
+        await _autoConnect();
       } else {
-        // Already authenticated — load data immediately
         _loadDataInBackground();
       }
     }
@@ -62,15 +91,19 @@ class OdooState extends ChangeNotifier {
   /// Auto-connect to Odoo in background (silent, no user interaction)
   Future<void> _autoConnect() async {
     try {
+      debugPrint('[OdooState] Attempting authentication...');
       final authResult = await _apiService.authenticate();
       if (authResult.success) {
         _isAuthenticated = true;
+        debugPrint('[OdooState] ✅ Authentication successful');
         // Load products automatically
         _loadDataInBackground();
+      } else {
+        debugPrint('[OdooState] ❌ Authentication failed: ${authResult.error}');
       }
       notifyListeners();
     } catch (e) {
-      // Silent fail - don't show errors to users
+      debugPrint('[OdooState] ❌ Authentication error: $e');
       _isAuthenticated = false;
     }
   }

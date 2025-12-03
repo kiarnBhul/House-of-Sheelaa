@@ -6,8 +6,10 @@
   },
   "dataconnect": {
     "source": "dataconnect"
-  }
-  ,
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
   "hosting": {
     "public": "build/web",
     "ignore": [

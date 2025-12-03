@@ -36,7 +36,21 @@ class _OtpScreenState extends State<OtpScreen> {
     final auth = context.read<AuthState>();
     final ok = await auth.verifyOtp(code);
     if (!mounted) return;
+    
     if (ok) {
+      // Check if user is fully authenticated (existing user)
+      if (auth.status == AuthStatus.authenticated &&
+          auth.firstName != null &&
+          auth.firstName!.isNotEmpty) {
+        // Existing user - go directly to home
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          AssistChoiceScreen.route,
+          (route) => false,
+        );
+        return;
+      }
+      
+      // New user - go through onboarding flow
       if (auth.language == null) {
         Navigator.of(context).pushNamed(LanguageScreen.route);
         return;
@@ -45,19 +59,13 @@ class _OtpScreenState extends State<OtpScreen> {
         Navigator.of(context).pushNamed(GenderScreen.route);
         return;
       }
-      if (auth.status == AuthStatus.authenticated &&
-          ((auth.firstName?.isNotEmpty ?? false) ||
-              (auth.name?.isNotEmpty ?? false))) {
-        Navigator.of(
-          context,
-        ).pushNamedAndRemoveUntil(AssistChoiceScreen.route, (route) => false);
-      } else {
-        Navigator.of(context).pushNamed(DetailsScreen.route);
-      }
+      
+      // Need to complete profile details
+      Navigator.of(context).pushNamed(DetailsScreen.route);
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Invalid OTP')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid OTP')),
+      );
     }
   }
 

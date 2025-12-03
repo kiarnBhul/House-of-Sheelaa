@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 
 enum AuthStatus { unknown, unauthenticated, authenticated }
 
 class AuthState extends ChangeNotifier {
+  final fb_auth.FirebaseAuth _firebaseAuth = fb_auth.FirebaseAuth.instance;
+  
   AuthStatus status = AuthStatus.unknown;
   bool loading = false;
   String? phone;
@@ -15,22 +18,160 @@ class AuthState extends ChangeNotifier {
   List<String> interests = [];
   String? gender;
   String? language;
+  String? userId; // Firebase Auth UID
+  String? email;
 
   Future<void> initialize() async {
     await Future.delayed(const Duration(milliseconds: 600));
-    status = AuthStatus.unauthenticated;
+    
+    // Check if user is already signed in with Firebase Auth
+    final currentUser = _firebaseAuth.currentUser;
+    if (currentUser != null) {
+      userId = currentUser.uid;
+      email = currentUser.email;
+      phone = currentUser.phoneNumber;
+      
+      // Load user data from Firestore
+      await _loadUserData();
+      
+      if (name != null || firstName != null) {
+        status = AuthStatus.authenticated;
+      } else {
+        status = AuthStatus.unauthenticated;
+      }
+    } else {
+      status = AuthStatus.unauthenticated;
+    }
+    
     notifyListeners();
+  }
+
+  Future<void> _loadUserData() async {
+    if (userId == null) return;
+    
+    try {
+      // Try loading by userId first
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId!)
+          .get();
+          
+      if (doc.exists) {
+        _populateFromFirestore(doc.data()!);
+        return;
+      }
+      
+      // If not found and phone exists, try phone
+      if (phone != null && phone!.isNotEmpty) {
+        final phoneDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(phone!)
+            .get();
+            
+        if (phoneDoc.exists) {
+          _populateFromFirestore(phoneDoc.data()!);
+        }
+      }
+    } catch (e) {
+      debugPrint('[AuthState] Error loading user data: $e');
+    }
+  }
+
+  void _populateFromFirestore(Map<String, dynamic> data) {
+    firstName = data['firstName'] as String?;
+    lastName = data['lastName'] as String?;
+    name = data['name'] as String? ?? ([firstName, lastName].whereType<String>().join(' ').trim());
+    email = data['email'] as String?;
+    phone = data['phone'] as String?;
+    
+    final dobStr = data['dob'];
+    if (dobStr is String) {
+      dob = DateTime.tryParse(dobStr);
+    }
+    
+    final ints = data['interests'];
+    if (ints is List) {
+      interests = ints.cast<String>();
+    }
+    
+    gender = data['gender'] as String?;
+    language = data['language'] as String?;
   }
 
   Future<bool> login(String emailOrPhone, String password) async {
     loading = true;
     notifyListeners();
-    await Future.delayed(const Duration(seconds: 1));
-    loading = false;
-    final ok = emailOrPhone.isNotEmpty && password.length >= 6;
-    if (ok) status = AuthStatus.authenticated;
-    notifyListeners();
-    return ok;
+    
+    try {
+      // Determine if input is email or phone
+      final isEmail = emailOrPhone.contains('@');
+      
+      if (isEmail) {
+        // Email & Password login
+        final credential = await _firebaseAuth.signInWithEmailAndPassword(
+          email: emailOrPhone,
+          password: password,
+        );
+        
+        if (credential.user != null) {
+          userId = credential.user!.uid;
+          email = credential.user!.email;
+          phone = credential.user!.phoneNumber;
+          
+          await _loadUserData();
+          
+          loading = false;
+          status = AuthStatus.authenticated;
+          notifyListeners();
+          return true;
+        }
+      } else {
+        // Phone number login - check if user exists in Firestore
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(emailOrPhone)
+            .get();
+            
+        if (userDoc.exists) {
+          final data = userDoc.data()!;
+          final storedEmail = data['email'] as String?;
+          
+          if (storedEmail != null) {
+            // Try to sign in with stored email
+            try {
+              final credential = await _firebaseAuth.signInWithEmailAndPassword(
+                email: storedEmail,
+                password: password,
+              );
+              
+              if (credential.user != null) {
+                userId = credential.user!.uid;
+                email = credential.user!.email;
+                phone = emailOrPhone;
+                
+                _populateFromFirestore(data);
+                
+                loading = false;
+                status = AuthStatus.authenticated;
+                notifyListeners();
+                return true;
+              }
+            } catch (e) {
+              debugPrint('[AuthState] Phone login failed: $e');
+            }
+          }
+        }
+      }
+      
+      loading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      debugPrint('[AuthState] Login error: $e');
+      loading = false;
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<bool> register({
@@ -41,16 +182,72 @@ class AuthState extends ChangeNotifier {
   }) async {
     loading = true;
     notifyListeners();
-    await Future.delayed(const Duration(seconds: 1));
-    loading = false;
-    final ok =
-        name.isNotEmpty &&
-        email.isNotEmpty &&
-        phone.isNotEmpty &&
-        password.length >= 6;
-    if (ok) status = AuthStatus.authenticated;
-    notifyListeners();
-    return ok;
+    
+    try {
+      // Create Firebase Auth account
+      final credential = await _firebaseAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      
+      if (credential.user != null) {
+        userId = credential.user!.uid;
+        this.email = email;
+        this.phone = phone;
+        this.name = name;
+        
+        // Split name into first and last
+        final nameParts = name.split(' ');
+        firstName = nameParts.first;
+        lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+        
+        // Save to Firestore using userId as document ID
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId!)
+            .set({
+          'userId': userId,
+          'email': email,
+          'phone': phone,
+          'name': name,
+          'firstName': firstName,
+          'lastName': lastName,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        
+        // Also save with phone as document ID for backward compatibility
+        if (phone.isNotEmpty) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(phone)
+              .set({
+            'userId': userId,
+            'email': email,
+            'phone': phone,
+            'name': name,
+            'firstName': firstName,
+            'lastName': lastName,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+        
+        loading = false;
+        status = AuthStatus.authenticated;
+        notifyListeners();
+        return true;
+      }
+      
+      loading = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      debugPrint('[AuthState] Registration error: $e');
+      loading = false;
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<void> sendOtp(String phone) async {
@@ -59,15 +256,8 @@ class AuthState extends ChangeNotifier {
     await Future.delayed(const Duration(seconds: 1));
     this.phone = phone;
     otpSent = true;
-    // Reset onboarding-related fields so a brand new user flows through
-    // Language -> Gender -> Details after OTP verification.
-    name = null;
-    firstName = null;
-    lastName = null;
-    dob = null;
-    interests = [];
-    gender = null;
-    language = null;
+    
+    // DON'T reset user data yet - we'll check after OTP verification
     loading = false;
     notifyListeners();
   }
@@ -76,11 +266,47 @@ class AuthState extends ChangeNotifier {
     loading = true;
     notifyListeners();
     await Future.delayed(const Duration(seconds: 1));
-    loading = false;
+    
     final ok = code.length == 6;
-    if (ok) {
-      await loadUserByPhone();
+    if (ok && phone != null) {
+      // Check if user already exists in Firestore
+      try {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(phone!)
+            .get();
+        
+        if (userDoc.exists) {
+          // User exists - load their data
+          final data = userDoc.data()!;
+          _populateFromFirestore(data);
+          
+          // Check if profile is complete
+          if (firstName != null && firstName!.isNotEmpty) {
+            // Existing user with complete profile
+            loading = false;
+            status = AuthStatus.authenticated;
+            notifyListeners();
+            return true;
+          }
+        }
+        
+        // New user or incomplete profile - reset fields for onboarding flow
+        if (!userDoc.exists) {
+          name = null;
+          firstName = null;
+          lastName = null;
+          dob = null;
+          interests = [];
+          gender = null;
+          language = null;
+        }
+      } catch (e) {
+        debugPrint('[AuthState] Error checking user existence: $e');
+      }
     }
+    
+    loading = false;
     notifyListeners();
     return ok;
   }
@@ -95,7 +321,7 @@ class AuthState extends ChangeNotifier {
   }) async {
     loading = true;
     notifyListeners();
-    await Future.delayed(const Duration(milliseconds: 800));
+    
     this.firstName = firstName;
     this.lastName = lastName;
     name = ('$firstName $lastName').trim();
@@ -103,31 +329,70 @@ class AuthState extends ChangeNotifier {
     this.interests = interests;
     this.gender = gender ?? this.gender;
     this.language = language ?? this.language;
+    
     try {
+      final baseData = {
+        'firstName': firstName,
+        'lastName': lastName,
+        'name': name,
+        'dob': dob.toIso8601String(),
+        'interests': interests,
+        'gender': this.gender,
+        'language': this.language,
+        'phone': phone,
+        'userId': userId,
+        'email': email,
+      };
+      
+      // Save by phone number (primary for phone login)
       if (phone != null && phone!.isNotEmpty) {
-        final users = FirebaseFirestore.instance.collection('users');
-        await users.doc(phone!).set({
-          'phone': phone,
-          'firstName': firstName,
-          'lastName': lastName,
-          'name': name,
-          'dob': dob.toIso8601String(),
-          'interests': interests,
-          'gender': this.gender,
-          'language': this.language,
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(phone!)
+            .set({
+          ...baseData,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
+      
+      // Also save by userId if exists (for email/password users)
+      if (userId != null && userId!.isNotEmpty && userId != phone) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId!)
+            .set({
+          ...baseData,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      
       status = AuthStatus.authenticated;
-    } catch (_) {}
-    loading = false;
-    notifyListeners();
-    return true;
+      loading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('[AuthState] Save profile error: $e');
+      loading = false;
+      notifyListeners();
+      return false;
+    }
   }
 
   void logout() {
+    _firebaseAuth.signOut();
     status = AuthStatus.unauthenticated;
+    userId = null;
+    email = null;
+    phone = null;
+    name = null;
+    firstName = null;
+    lastName = null;
+    dob = null;
+    interests = [];
+    gender = null;
+    language = null;
     notifyListeners();
   }
 

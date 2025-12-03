@@ -6,6 +6,7 @@ import 'package:house_of_sheelaa/theme/brand_theme.dart';
 import 'package:house_of_sheelaa/features/auth/state/auth_state.dart';
 import '../../core/odoo/odoo_config.dart';
 import '../../core/odoo/odoo_state.dart';
+import '../../core/odoo/global_odoo_config_service.dart';
 
 class OdooConfigScreen extends StatefulWidget {
   static const String route = '/odoo-config';
@@ -23,11 +24,13 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _proxyUrlController = TextEditingController();
+  final GlobalOdooConfigService _globalConfigService = GlobalOdooConfigService();
+  
   bool _obscurePassword = true;
   bool _obscureApiKey = true;
   bool _isConnecting = false;
   bool _useApiKey = true; // Default to API key authentication
-  bool _persistRemote = true; // default to persist remote config
+  bool _saveGlobally = true; // Save globally for all users (production mode)
 
   @override
   void initState() {
@@ -36,6 +39,19 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
   }
 
   Future<void> _loadCurrentConfig() async {
+    // Try to load global config first
+    final globalMeta = await _globalConfigService.getGlobalConfigMetadata();
+    if (globalMeta != null) {
+      setState(() {
+        _baseUrlController.text = globalMeta['baseUrl'] ?? '';
+        _databaseController.text = globalMeta['database'] ?? '';
+        _proxyUrlController.text = globalMeta['proxyUrl'] ?? '';
+        _useApiKey = globalMeta['hasApiKey'] ?? true;
+      });
+      return;
+    }
+    
+    // Fall back to local config
     await OdooConfig.loadConfig();
     setState(() {
       _baseUrlController.text = OdooConfig.baseUrl;
@@ -84,9 +100,8 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
     }
     
     final odooState = context.read<OdooState>();
-    final authState = Provider.of<AuthState>(context, listen: false);
-    String? phone = authState.phone;
 
+    // STEP 1: Test connection by configuring locally first
     final success = await odooState.configure(
       baseUrl: _baseUrlController.text.trim(),
       database: _databaseController.text.trim(),
@@ -94,25 +109,54 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
       username: _useApiKey ? '' : _usernameController.text.trim(),
       password: _useApiKey ? '' : _passwordController.text.trim(),
       proxyUrl: proxyUrl,
-      persistRemote: _persistRemote,
-      remoteDocId: _persistRemote ? (phone != null && phone.isNotEmpty ? 'odoo_config_$phone' : 'odoo_config') : null,
+      persistRemote: false, // Don't save user-specific config
+      remoteDocId: null,
     );
 
-    setState(() => _isConnecting = false);
-
     if (success) {
-      // Save to Firestore automatically for persistence across devices
-      if (_persistRemote) {
+      // STEP 2: Save globally if requested (for production - all users)
+      if (_saveGlobally) {
         try {
-          final docId = remoteDocId ?? 'odoo_config';
-          await OdooConfig.saveToFirestore(docId: docId);
-        } catch (_) {}
+          final globalSaved = await _globalConfigService.saveGlobalConfig(
+            baseUrl: _baseUrlController.text.trim(),
+            database: _databaseController.text.trim(),
+            apiKey: _useApiKey ? _apiKeyController.text.trim() : '',
+            username: _useApiKey ? '' : _usernameController.text.trim(),
+            password: _useApiKey ? '' : _passwordController.text.trim(),
+            proxyUrl: proxyUrl,
+            isActive: true,
+          );
+          
+          if (globalSaved) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('✅ Global configuration saved! All users will use this Odoo instance.'),
+                backgroundColor: BrandColors.ecstasy,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('⚠️ Connected but failed to save globally: $e'),
+              backgroundColor: BrandColors.cardinalPink,
+            ),
+          );
+        }
       }
       
+      setState(() => _isConnecting = false);
+      
       // Show immediate feedback and then refresh in background
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Successfully connected to Odoo! Configuration saved.'),
+          content: Text(_saveGlobally 
+              ? 'Successfully connected to Odoo! Global configuration active.' 
+              : 'Successfully connected to Odoo! (Local only)'),
           backgroundColor: BrandColors.ecstasy,
           duration: const Duration(seconds: 3),
         ),
@@ -337,19 +381,34 @@ class _OdooConfigScreenState extends State<OdooConfigScreen> {
                                                     children: [
                                                       Expanded(
                                                         child: Text(
-                                                          'Persist configuration remotely (encrypted)',
-                                                          style: tt.bodyMedium?.copyWith(color: BrandColors.alabaster),
+                                                          '🌍 Save globally for ALL users (Production)',
+                                                          style: tt.bodyMedium?.copyWith(
+                                                            color: BrandColors.alabaster,
+                                                            fontWeight: FontWeight.w600,
+                                                          ),
                                                         ),
                                                       ),
                                                       Switch(
-                                                        value: _persistRemote,
+                                                        value: _saveGlobally,
                                                         onChanged: (v) {
-                                                          setState(() => _persistRemote = v);
+                                                          setState(() => _saveGlobally = v);
                                                         },
                                                         activeThumbColor: BrandColors.ecstasy,
                                                       ),
                                                     ],
                                                   ),
+                                                  if (_saveGlobally)
+                                                    Padding(
+                                                      padding: const EdgeInsets.only(top: 4),
+                                                      child: Text(
+                                                        '✅ All app users will automatically use this Odoo configuration',
+                                                        style: tt.bodySmall?.copyWith(
+                                                          color: BrandColors.ecstasy.withValues(alpha: 0.9),
+                                                          fontSize: 11,
+                                                          fontWeight: FontWeight.w500,
+                                                        ),
+                                                      ),
+                                                    ),
                                                   const SizedBox(height: 6),
                                                   Text(
                                                     '• Configuring Odoo server CORS settings\n• Using a backend proxy server',
