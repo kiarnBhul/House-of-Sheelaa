@@ -24,10 +24,65 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 
 // Simple root route
 app.get('/', (req, res) => {
-  res.type('text/plain').send('Odoo Proxy Server is running. Use /api/odoo/* endpoints.');
+  res.type('text/html').send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>House of Sheelaa - Odoo Proxy Server</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          margin: 0;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container {
+          background: white;
+          padding: 40px;
+          border-radius: 10px;
+          box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+          text-align: center;
+        }
+        h1 { color: #333; margin: 0 0 10px 0; }
+        p { color: #666; margin: 10px 0; }
+        .status { color: #4CAF50; font-weight: bold; font-size: 18px; }
+        .endpoints {
+          text-align: left;
+          background: #f5f5f5;
+          padding: 20px;
+          border-radius: 5px;
+          margin-top: 20px;
+        }
+        .endpoints h3 { margin-top: 0; }
+        code { background: #ddd; padding: 2px 6px; border-radius: 3px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🔗 House of Sheelaa Proxy Server</h1>
+        <p class="status">✓ Proxy Server is Running</p>
+        <p>This server handles CORS-enabled requests to your Odoo instance.</p>
+        
+        <div class="endpoints">
+          <h3>Available Endpoints:</h3>
+          <p><code>/health</code> - Health check</p>
+          <p><code>/api/odoo/*</code> - All Odoo API requests (proxied to your Odoo server)</p>
+          <p><strong>Required Header:</strong> <code>X-Odoo-Base-Url</code> (your Odoo server URL)</p>
+        </div>
+        
+        <p style="margin-top: 20px; font-size: 12px; color: #999;">
+          For use with House of Sheelaa Flutter Application
+        </p>
+      </div>
+    </body>
+    </html>
+  `);
 });
 
-// Proxy middleware for Odoo requests
+// Proxy middleware for Odoo requests (MUST be before catch-all)
 app.use('/api/odoo', (req, res, next) => {
   // Get the actual Odoo base URL from header or environment variable
   const odooBaseUrl = req.headers['x-odoo-base-url'] || process.env.ODOO_BASE_URL;
@@ -88,6 +143,15 @@ app.use('/api/odoo', (req, res, next) => {
   });
 
   proxy(req, res, next);
+});
+
+// Catch-all route for undefined endpoints (MUST be last)
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: `Endpoint ${req.originalUrl} does not exist`,
+    hint: 'Use /api/odoo/* for Odoo API requests. Visit / for documentation.',
+  });
 });
 
 // Error handling middleware
