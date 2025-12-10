@@ -44,15 +44,20 @@ class _SplashScreenState extends State<SplashScreen>
     _controller.forward();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Future.delayed(const Duration(milliseconds: 500));
       if (!mounted) return;
-      await context.read<AuthState>().initialize();
+      
+      // Initialize auth (quick, with error handling)
+      try {
+        await context.read<AuthState>().initialize();
+      } catch (e) {
+        debugPrint('[SplashScreen] Auth init error: $e');
+      }
+      
+      // Show UI after animation
+      await Future.delayed(const Duration(milliseconds: 1200));
       if (!mounted) return;
+      
       final status = context.read<AuthState>().status;
-      
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (!mounted) return;
-      
       if (status == AuthStatus.authenticated) {
         Navigator.of(context).pushReplacementNamed(HomeScreen.route);
       } else {

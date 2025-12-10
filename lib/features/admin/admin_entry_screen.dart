@@ -9,6 +9,7 @@ import '../../admin/features/integration/integration_page.dart';
 import '../../admin/layout/admin_shell.dart';
 import '../../admin/features/services/services_list_page.dart';
 import '../../admin/features/services/services_edit_page.dart';
+import '../../admin/features/reviews/reviews_page.dart';
 import '../../core/odoo/odoo_state.dart';
 
 /// Entry screen that wraps the admin panel and integrates it with the main app
@@ -43,6 +44,11 @@ class AdminEntryScreen extends StatelessWidget {
       initialLocation: '/hofs-admin/dashboard',
       refreshListenable: auth,
       redirect: (context, state) {
+        // Wait for auth state to initialize from storage
+        if (!auth.isInitialized) {
+          return null; // Stay on current route while loading
+        }
+        
         final loggedIn = auth.isAuthenticated;
         final goingToLogin = state.matchedLocation.startsWith('/hofs-admin/login');
         if (!loggedIn && !goingToLogin) return '/hofs-admin/login';
@@ -89,6 +95,11 @@ class AdminEntryScreen extends StatelessWidget {
                   builder: (context, state) => ServicesEditPage(id: state.pathParameters['id']),
                 ),
               ],
+            ),
+            GoRoute(
+              path: '/hofs-admin/reviews',
+              name: 'admin-reviews',
+              builder: (context, state) => const ReviewsPage(),
             ),
           ],
         ),

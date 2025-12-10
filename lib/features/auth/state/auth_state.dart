@@ -21,29 +21,30 @@ class AuthState extends ChangeNotifier {
   String? userId; // Firebase Auth UID
   String? email;
 
+  // Getter for phoneNumber (alias for phone)
+  String? get phoneNumber => phone;
+
   Future<void> initialize() async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    
-    // Check if user is already signed in with Firebase Auth
+    // Quick sync check first (no network, instant)
     final currentUser = _firebaseAuth.currentUser;
     if (currentUser != null) {
       userId = currentUser.uid;
       email = currentUser.email;
       phone = currentUser.phoneNumber;
-      
-      // Load user data from Firestore
-      await _loadUserData();
-      
-      if (name != null || firstName != null) {
-        status = AuthStatus.authenticated;
-      } else {
-        status = AuthStatus.unauthenticated;
-      }
+      status = AuthStatus.authenticated;
+      notifyListeners();
+      _loadUserDataAsync();
     } else {
       status = AuthStatus.unauthenticated;
+      notifyListeners();
     }
-    
-    notifyListeners();
+  }
+
+  void _loadUserDataAsync() {
+    _loadUserData().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => debugPrint('[AuthState] User data load timed out'),
+    ).catchError((e) => debugPrint('[AuthState] Error loading user async: $e'));
   }
 
   Future<void> _loadUserData() async {
@@ -268,41 +269,25 @@ class AuthState extends ChangeNotifier {
     await Future.delayed(const Duration(seconds: 1));
     
     final ok = code.length == 6;
-    if (ok && phone != null) {
-      // Check if user already exists in Firestore
-      try {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(phone!)
-            .get();
-        
-        if (userDoc.exists) {
-          // User exists - load their data
-          final data = userDoc.data()!;
-          _populateFromFirestore(data);
-          
-          // Check if profile is complete
-          if (firstName != null && firstName!.isNotEmpty) {
-            // Existing user with complete profile
-            loading = false;
-            status = AuthStatus.authenticated;
-            notifyListeners();
-            return true;
-          }
-        }
-        
-        // New user or incomplete profile - reset fields for onboarding flow
-        if (!userDoc.exists) {
-          name = null;
-          firstName = null;
-          lastName = null;
-          dob = null;
-          interests = [];
-          gender = null;
-          language = null;
-        }
-      } catch (e) {
-        debugPrint('[AuthState] Error checking user existence: $e');
+    if (ok) {
+      // Check if user already exists
+      final userExists = await loadUserByPhone();
+      
+      if (userExists) {
+        // User exists - mark as authenticated and skip onboarding
+        loading = false;
+        status = AuthStatus.authenticated;
+        notifyListeners();
+        return true;
+      } else {
+        // New user - reset fields for onboarding flow
+        name = null;
+        firstName = null;
+        lastName = null;
+        dob = null;
+        interests = [];
+        gender = null;
+        language = null;
       }
     }
     
@@ -314,6 +299,8 @@ class AuthState extends ChangeNotifier {
   Future<bool> saveProfile({
     required String firstName,
     required String lastName,
+    String? email,
+    String? phone,
     required DateTime dob,
     required List<String> interests,
     String? gender,
@@ -325,46 +312,45 @@ class AuthState extends ChangeNotifier {
     this.firstName = firstName;
     this.lastName = lastName;
     name = ('$firstName $lastName').trim();
+    if (email != null && email.isNotEmpty) this.email = email;
+    if (phone != null && phone.isNotEmpty) this.phone = phone;
     this.dob = dob;
     this.interests = interests;
     this.gender = gender ?? this.gender;
     this.language = language ?? this.language;
     
     try {
-      final baseData = {
+      final updateData = {
         'firstName': firstName,
         'lastName': lastName,
         'name': name,
+        'email': this.email,
+        'phone': this.phone,
         'dob': dob.toIso8601String(),
         'interests': interests,
         'gender': this.gender,
         'language': this.language,
-        'phone': phone,
-        'userId': userId,
-        'email': email,
+        'updatedAt': FieldValue.serverTimestamp(),
       };
       
-      // Save by phone number (primary for phone login)
+      // Update by userId
+      if (userId != null && userId!.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId!)
+            .set(updateData, SetOptions(merge: true));
+      }
+      
+      // Also update by phone if exists
       if (phone != null && phone!.isNotEmpty) {
         await FirebaseFirestore.instance
             .collection('users')
             .doc(phone!)
             .set({
-          ...baseData,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-      
-      // Also save by userId if exists (for email/password users)
-      if (userId != null && userId!.isNotEmpty && userId != phone) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId!)
-            .set({
-          ...baseData,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          ...updateData,
+          'userId': userId,
+          'email': email,
+          'phone': phone,
         }, SetOptions(merge: true));
       }
       

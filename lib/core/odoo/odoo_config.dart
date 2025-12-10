@@ -1,5 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../secure/crypto_helper.dart';
 
@@ -14,16 +14,20 @@ class OdooConfig {
   static const String _keySessionId = 'odoo_session_id';
 
   // Default values - Can be set via environment variables or UI
-  static final String _baseUrlEnv = const String.fromEnvironment('ODOO_BASE_URL', defaultValue: '');
-  static final String _databaseEnv = const String.fromEnvironment('ODOO_DATABASE', defaultValue: '');
+  // Production Odoo Configuration (initialized at app startup)
+  static final String _baseUrlEnv = const String.fromEnvironment('ODOO_BASE_URL', defaultValue: 'https://house-of-sheelaa.odoo.com');
+  static final String _databaseEnv = const String.fromEnvironment('ODOO_DATABASE', defaultValue: 'house-of-sheelaa');
   static final String _apiKeyEnv = const String.fromEnvironment('ODOO_API_KEY', defaultValue: '');
   static final String _proxyEnv = const String.fromEnvironment('ODOO_PROXY_URL', defaultValue: '');
-  static String baseUrl = _baseUrlEnv.isNotEmpty ? _baseUrlEnv : '';
-  static String database = _databaseEnv.isNotEmpty ? _databaseEnv : '';
-  static String apiKey = _apiKeyEnv; // Can be set via UI or environment variable
-  static String proxyUrl = _proxyEnv; // Optional: when set on web, route requests via proxy to avoid CORS
-  static String username = '';
-  static String password = '';
+  static final String _usernameEnv = const String.fromEnvironment('ODOO_USERNAME', defaultValue: 'admin@houseofsheelaa.com');
+  static final String _passwordEnv = const String.fromEnvironment('ODOO_PASSWORD', defaultValue: 'hofsAdmin@2025');
+  
+  static String baseUrl = _baseUrlEnv.isNotEmpty ? _baseUrlEnv : 'https://house-of-sheelaa.odoo.com';
+  static String database = _databaseEnv.isNotEmpty ? _databaseEnv : 'house-of-sheelaa';
+  static String apiKey = ''; // Temporarily disabled - using password auth instead
+  static String proxyUrl = _proxyEnv.isNotEmpty ? _proxyEnv : 'https://house-of-sheelaa-proxy-server.onrender.com'; // Use remote Render proxy
+  static String username = _usernameEnv.isNotEmpty ? _usernameEnv : 'admin@houseofsheelaa.com';
+  static String password = _passwordEnv.isNotEmpty ? _passwordEnv : 'hofsAdmin@2025';
   static int? uid;
   static String? sessionId;
 
@@ -41,7 +45,7 @@ class OdooConfig {
     return normalized;
   }
 
-  // Normalize proxy URL to ensure it has /api/odoo path
+  // Normalize proxy URL to ensure it has correct path
   static String _normalizeProxyUrl(String url) {
     if (url.isEmpty) return url;
     String normalized = url.trim();
@@ -49,15 +53,7 @@ class OdooConfig {
     if (normalized.endsWith('/')) {
       normalized = normalized.substring(0, normalized.length - 1);
     }
-    // If proxy URL doesn't include /api/odoo, add it
-    // But allow for cases where user provides full path
-    if (!normalized.contains('/api/odoo')) {
-      // If it's just a base URL like http://localhost:3000, add /api/odoo
-      final baseUrlPattern = RegExp(r'^https?://[^/]+$');
-      if (baseUrlPattern.hasMatch(normalized)) {
-        normalized = '$normalized/api/odoo';
-      }
-    }
+    // Return as-is: proxy will forward all requests directly to Odoo
     return normalized;
   }
 
@@ -82,6 +78,23 @@ class OdooConfig {
     return '${_normalizeUrl(baseUrl)}/jsonrpc';
   }
   
+  // XML-RPC endpoints for proper Odoo external API
+  static String get xmlRpcCommonUrl {
+    if (proxyUrl.isNotEmpty) {
+      final normalizedProxy = _normalizeProxyUrl(proxyUrl);
+      return '$normalizedProxy/xmlrpc/2/common';
+    }
+    return '${_normalizeUrl(baseUrl)}/xmlrpc/2/common';
+  }
+  
+  static String get xmlRpcObjectUrl {
+    if (proxyUrl.isNotEmpty) {
+      final normalizedProxy = _normalizeProxyUrl(proxyUrl);
+      return '$normalizedProxy/xmlrpc/2/object';
+    }
+    return '${_normalizeUrl(baseUrl)}/xmlrpc/2/object';
+  }
+  
   // Get the actual Odoo base URL (needed by proxy)
   static String get actualOdooBaseUrl => _normalizeUrl(baseUrl);
   static String get commonUrl => jsonRpcUrl;
@@ -102,8 +115,16 @@ class OdooConfig {
     database = _databaseEnv.isNotEmpty ? _databaseEnv : (prefs.getString(_keyDatabase) ?? database);
     // Load API key from prefs if not set via environment variable
     apiKey = _apiKeyEnv.isNotEmpty ? _apiKeyEnv : (prefs.getString(_keyApiKey) ?? apiKey);
-    username = prefs.getString(_keyUsername) ?? '';
-    password = prefs.getString(_keyPassword) ?? '';
+    // Keep hardcoded username if prefs is empty
+    final prefsUsername = prefs.getString(_keyUsername);
+    if (prefsUsername != null && prefsUsername.isNotEmpty) {
+      username = prefsUsername;
+    }
+    // Keep default password if not in prefs
+    final prefsPassword = prefs.getString(_keyPassword);
+    if (prefsPassword != null && prefsPassword.isNotEmpty) {
+      password = prefsPassword;
+    }
     proxyUrl = _proxyEnv.isNotEmpty ? _proxyEnv : (prefs.getString(_keyProxyUrl) ?? proxyUrl);
     uid = prefs.getInt(_keyUid);
     sessionId = prefs.getString(_keySessionId);

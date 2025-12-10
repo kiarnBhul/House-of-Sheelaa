@@ -33,7 +33,9 @@ class _NumerologyServiceFormScreenState extends State<NumerologyServiceFormScree
   final _emailController = TextEditingController();
   final _additionalInfoController = TextEditingController();
 
+  // ignore: unused_field
   DateTime? _selectedDate;
+  // ignore: unused_field
   TimeOfDay? _selectedTime;
 
   @override

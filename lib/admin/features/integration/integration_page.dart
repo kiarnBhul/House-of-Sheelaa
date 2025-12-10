@@ -110,8 +110,8 @@ class _IntegrationCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use read instead of watch to avoid unnecessary rebuilds
-    final odooState = context.read<OdooState>();
+    // Use watch to rebuild when connection status changes
+    final odooState = context.watch<OdooState>();
     final isConnected = odooState.isAuthenticated;
     
     return RepaintBoundary(

@@ -176,6 +176,31 @@ class ProfileScreen extends StatelessWidget {
                                   ],
                                 ),
                               ],
+                              if (auth.email != null && auth.email!.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.email_rounded,
+                                      size: 16,
+                                      color: BrandColors.ecstasy,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        auth.email!,
+                                        style: tt.bodyMedium?.copyWith(
+                                          color: BrandColors.alabaster.withValues(
+                                            alpha: 0.9,
+                                          ),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
                                 ),
                               ),
@@ -334,28 +359,6 @@ class ProfileScreen extends StatelessWidget {
                       title: 'Settings',
                       subtitle: 'Notifications, privacy, preferences',
                       onTap: () {},
-                    ),
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      height: 1,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.transparent,
-                            BrandColors.alabaster.withValues(alpha: 0.3),
-                            Colors.transparent,
-                          ],
-                        ),
-                    ),
-                    ),
-                    _buildMenuItem(
-                      context,
-                      icon: Icons.admin_panel_settings_rounded,
-                      title: 'Admin Panel',
-                      subtitle: 'Manage services, analytics, and integrations',
-                      onTap: () {
-                        Navigator.of(context).pushNamed(AdminEntryScreen.route);
-                      },
                     ),
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 16),

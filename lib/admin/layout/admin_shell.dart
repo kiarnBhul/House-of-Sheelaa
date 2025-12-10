@@ -153,6 +153,13 @@ class _AdminShellState extends State<AdminShell> with SingleTickerProviderStateM
                           isSelected: location.startsWith('/hofs-admin/services'),
                           onTap: () => context.go('/hofs-admin/services'),
                         ),
+                        _NavItem(
+                          icon: Icons.reviews_rounded,
+                          label: 'Reviews',
+                          isExpanded: _isSidebarExpanded,
+                          isSelected: location.startsWith('/hofs-admin/reviews'),
+                          onTap: () => context.go('/hofs-admin/reviews'),
+                        ),
                         const SizedBox(height: 8),
                         const Divider(color: Colors.white24, height: 1),
                         const SizedBox(height: 8),

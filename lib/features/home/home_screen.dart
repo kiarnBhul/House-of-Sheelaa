@@ -37,98 +37,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _autoPlayTimer;
 
   // --- Data (kept concise) ---
-  final List<Map<String, String>> _events = const [
-    {
-      "title": "9-9-9 Portal Activation Ceremony",
-      "subtitle": "Release Past Karma • Manifest Abundance",
-      "date": "9 Sept 2025",
-      "image":
-          "https://images.unsplash.com/photo-1505455184862-5548843f2951?w=1200&q=80&auto=format&fit=crop",
-    },
-    {
-      "title": "Full Moon Group Healing",
-      "subtitle": "Emotional Release • Chakra Alignment",
-      "date": "14 Oct 2025",
-      "image":
-          "https://images.unsplash.com/photo-1533038590840-1cde6e668a91?w=1200&q=80",
-    },
-    {
-      "title": "Free Aura Cleansing Week",
-      "subtitle": "Clear Negative Energy • Personal Guidance",
-      "date": "1-7 Nov 2025",
-      "image":
-          "https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=1200&q=80",
-    },
-  ];
+  // Demo events removed
+  final List<Map<String, String>> _events = [];
 
   // If Odoo is configured and provides events, the UI will prefer those.
 
-  final List<Map<String, dynamic>> _topConsultants = const [
-    {
-      "name": "Sheelaa M Baja",
-      "specialty": "Hypnotherapy",
-      "rating": 4.9,
-      "experience": "18+ yrs",
-      "price": "₹1,499 • 30m",
-      "image":
-          "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&q=80",
-    },
-    {
-      "name": "Pranjall R Sharma",
-      "specialty": "Reader",
-      "rating": 4.8,
-      "experience": "12+ yrs",
-      "price": "₹999 • 20m",
-      "image":
-          "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400&q=80&auto=format&fit=crop",
-    },
-    {
-      "name": "Harleen Man",
-      "specialty": "Aura Reader",
-      "rating": 4.7,
-      "experience": "9+ yrs",
-      "price": "₹899 • 15m",
-      "image":
-          "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&q=80&auto=format&fit=crop",
-    },
-    {
-      "name": "Debbi",
-      "specialty": "Reader",
-      "rating": 4.6,
-      "experience": "11+ yrs",
-      "price": "₹799 • 20m",
-      "image":
-          "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400&q=80",
-    },
-  ];
+  // Demo consultants removed
+  final List<Map<String, dynamic>> _topConsultants = [];
 
-  final List<Map<String, String>> _products = const [
-    {
-      "name": "Bracelet",
-      "price": "₹1,499",
-      "image": "assets/images/bracelet.jpg",
-    },
-    {
-      "name": "Aura Spray",
-      "price": "₹799",
-      "image": "assets/images/aura_spray.jpg",
-    },
-    {
-      "name": "BMR Salt",
-      "price": "₹499",
-      "image": "assets/images/bmr_salt.jpg",
-    },
-    {
-      "name": "BMR Soap",
-      "price": "₹1,999",
-      "image": "assets/images/bmr_shop.jpg",
-    },
-    {
-      "name": "Spiritual Products",
-      "price": "₹1,299",
-      "image": "assets/images/spiritual_products.jpg",
-    },
-  ];
+  // Demo products removed
+  final List<Map<String, String>> _products = [];
 
   // --- Layout constants ---
   static const double _outerPadding = 20;
@@ -196,8 +114,8 @@ class _HomeScreenState extends State<HomeScreen> {
               SliverToBoxAdapter(child: const SizedBox(height: 12)),
               SliverToBoxAdapter(child: _buildExploreDesires(context)),
               SliverToBoxAdapter(child: const SizedBox(height: 20)),
-              SliverToBoxAdapter(child: _buildTopConsultants(context)),
-              SliverToBoxAdapter(child: const SizedBox(height: 20)),
+              // SliverToBoxAdapter(child: _buildTopConsultants(context)),
+              // SliverToBoxAdapter(child: const SizedBox(height: 20)),
               SliverToBoxAdapter(child: _buildServicesSection(context)),
               SliverToBoxAdapter(child: const SizedBox(height: 20)),
               SliverToBoxAdapter(child: _buildStoreSection(context)),
@@ -565,14 +483,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildEventsCarousel() {
     final odooState = context.watch<OdooState>();
     final odooEvents = odooState.events;
-    final sourceEvents = odooEvents.isNotEmpty
-        ? odooEvents.map((e) => {
+    final sourceEvents = odooEvents.map((e) => {
             'title': e.name,
             'subtitle': e.description ?? '',
             'date': e.dateBegin?.toIso8601String() ?? '',
             'image': e.imageUrl ?? 'assets/images/background.jpg',
-          }).toList()
-        : _events;
+          }).toList();
+
+    if (sourceEvents.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     return Column(
       children: [
@@ -1082,6 +1002,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildTopConsultants(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1142,7 +1063,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 12),
         SizedBox(
-          height: 320,
+          height: 340,
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: _outerPadding),
             scrollDirection: Axis.horizontal,
@@ -1209,80 +1130,32 @@ class _HomeScreenState extends State<HomeScreen> {
               'subs': subs,
             };
           }).toList()
-        : const [
-            {
-              "name": "Healing",
-              "subtitle": "Energy Healing & Restoration",
-              "image": "https://picsum.photos/seed/healing/800/600",
-              "icon": Icons.healing,
-              "subs": [
-                {"name": "Reiki Session", "durationMin": 30, "image": "https://picsum.photos/seed/reiki/300/300"},
-              ],
-            },
-            {
-              "name": "Card Reading",
-              "subtitle": "Tarot & Oracle Readings",
-              "image": "https://picsum.photos/seed/cards/800/600",
-              "icon": Icons.style,
-              "subs": [
-                {"name": "Tarot Reading", "durationMin": 20, "image": "https://picsum.photos/seed/tarot/300/300"},
-              ],
-            },
-            {
-              "name": "Numerology",
-              "subtitle": "Power of numbers",
-              "image": "https://picsum.photos/seed/numerology/800/600",
-              "icon": Icons.numbers,
-              "subs": [
-                {"name": "Lucky Name Correction", "durationMin": 15, "image": "https://picsum.photos/seed/num_luckyname/300/300"},
-              ],
-            },
-            {
-              "name": "Astrology",
-              "subtitle": "Birth Chart & Predictions",
-              "image": "https://picsum.photos/seed/astrology/800/600",
-              "icon": Icons.public,
-              "subs": [
-                {"name": "Kundali Reading", "durationMin": 30, "image": "https://picsum.photos/seed/kundali/300/300"},
-              ],
-            },
-            {
-              "name": "Vastu",
-              "subtitle": "Home & Space Alignment",
-              "image": "https://picsum.photos/seed/vastu/800/600",
-              "icon": Icons.house,
-              "subs": [
-                {"name": "Vastu Consultation", "durationMin": 45, "image": "https://picsum.photos/seed/vastu_consult/300/300"},
-              ],
-            },
-            {
-              "name": "Meditation",
-              "subtitle": "Guided Sessions & Practices",
-              "image": "https://picsum.photos/seed/meditation/800/600",
-              "icon": Icons.self_improvement,
-              "subs": [
-                {"name": "Guided Meditation", "durationMin": 20, "image": "https://picsum.photos/seed/meditate/300/300"},
-              ],
-            },
-            {
-              "name": "Crystal Healing",
-              "subtitle": "Stones & Balancing",
-              "image": "https://picsum.photos/seed/crystal/800/600",
-              "icon": Icons.auto_awesome,
-              "subs": [
-                {"name": "Crystal Layout", "durationMin": 30, "image": "https://picsum.photos/seed/crystal_layout/300/300"},
-              ],
-            },
-            {
-              "name": "Herbal Remedies",
-              "subtitle": "Natural Remedies & Oils",
-              "image": "https://picsum.photos/seed/herbal/800/600",
-              "icon": Icons.emoji_nature,
-              "subs": [
-                {"name": "Herbal Consultation", "durationMin": 25, "image": "https://picsum.photos/seed/herbal_consult/300/300"},
-              ],
-            },
-          ];
+        : []; // No fallback demo data
+
+    if (cats.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: _outerPadding, vertical: 20),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.spa_outlined, size: 48, color: BrandColors.alabaster.withValues(alpha: 0.5)),
+              const SizedBox(height: 12),
+              Text(
+                'No services available',
+                style: TextStyle(color: BrandColors.alabaster.withValues(alpha: 0.7)),
+              ),
+              if (!odooState.isAuthenticated)
+                 TextButton(
+                   onPressed: () {
+                     // Navigate to config? Or just show message
+                   },
+                   child: const Text('Connect to Odoo', style: TextStyle(color: BrandColors.ecstasy)),
+                 ),
+            ],
+          ),
+        ),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1493,6 +1366,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _consultantCard(BuildContext context, Map<String, dynamic> astro) {
     return Container(
       width: 230,
+      height: 330,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(32),
         gradient: LinearGradient(
@@ -1522,191 +1396,205 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisSize: MainAxisSize.max,
         children: [
-          Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  BrandColors.ecstasy.withValues(alpha: 0.5),
-                  BrandColors.persianRed.withValues(alpha: 0.5),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: BrandColors.ecstasy.withValues(alpha: 0.6),
-                  blurRadius: 18,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.all(5),
-            child: Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: BrandColors.alabaster.withValues(alpha: 0.7),
-                  width: 2.5,
-                ),
-              ),
-              child: ClipOval(
-                child: Image.network(
-                  astro['image'] as String,
-                  width: 96,
-                  height: 96,
-                  fit: BoxFit.cover,
-                  filterQuality: FilterQuality.low,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return Container(
-                      width: 96,
-                      height: 96,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          colors: [
-                            BrandColors.ecstasy.withValues(alpha: 0.3),
-                            BrandColors.persianRed.withValues(alpha: 0.3),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 96,
-                      height: 96,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          colors: [
-                            BrandColors.ecstasy.withValues(alpha: 0.3),
-                            BrandColors.persianRed.withValues(alpha: 0.3),
-                          ],
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        Icons.person_rounded,
-                        color: BrandColors.alabaster.withValues(alpha: 0.8),
-                        size: 40,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            astro['name'] as String,
-            style: TextStyle(
-              color: BrandColors.alabaster,
-              fontWeight: FontWeight.w800,
-              fontSize: 17,
-              letterSpacing: 0.2,
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [
-                  BrandColors.ecstasy,
-                  BrandColors.persianRed,
-                ],
-              ),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: BrandColors.ecstasy.withValues(alpha: 0.5),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Text(
-              astro['specialty'] as String,
-              style: const TextStyle(
-                color: BrandColors.alabaster,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.3,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const Spacer(),
-          if (astro['rating'] != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    BrandColors.alabaster.withValues(alpha: 0.2),
-                    BrandColors.alabaster.withValues(alpha: 0.1),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [
+                      BrandColors.ecstasy.withValues(alpha: 0.5),
+                      BrandColors.persianRed.withValues(alpha: 0.5),
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: BrandColors.ecstasy.withValues(alpha: 0.6),
+                      blurRadius: 18,
+                      offset: const Offset(0, 6),
+                    ),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: BrandColors.alabaster.withValues(alpha: 0.3),
-                  width: 1.5,
+                padding: const EdgeInsets.all(4),
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: BrandColors.alabaster.withValues(alpha: 0.7),
+                      width: 2,
+                    ),
+                  ),
+                  child: ClipOval(
+                    child: Image.network(
+                      astro['image'] as String,
+                      width: 88,
+                      height: 88,
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.low,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(
+                          width: 88,
+                          height: 88,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [
+                                BrandColors.ecstasy.withValues(alpha: 0.3),
+                                BrandColors.persianRed.withValues(alpha: 0.3),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          width: 88,
+                          height: 88,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [
+                                BrandColors.ecstasy.withValues(alpha: 0.3),
+                                BrandColors.persianRed.withValues(alpha: 0.3),
+                              ],
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.person_rounded,
+                            color: BrandColors.alabaster.withValues(alpha: 0.8),
+                            size: 36,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.star_rounded,
-                    color: BrandColors.ecstasy,
-                    size: 20,
+              const SizedBox(height: 12),
+              Text(
+                astro['name'] as String,
+                style: TextStyle(
+                  color: BrandColors.alabaster,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  letterSpacing: 0.2,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      BrandColors.ecstasy,
+                      BrandColors.persianRed,
+                    ],
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${astro['rating']}',
-                    style: const TextStyle(
-                      color: BrandColors.ecstasy,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: BrandColors.ecstasy.withValues(alpha: 0.5),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  astro['specialty'] as String,
+                  style: const TextStyle(
+                    color: BrandColors.alabaster,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (astro['rating'] != null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        BrandColors.alabaster.withValues(alpha: 0.2),
+                        BrandColors.alabaster.withValues(alpha: 0.1),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: BrandColors.alabaster.withValues(alpha: 0.3),
+                      width: 1.2,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Container(
-                    width: 1.5,
-                    height: 16,
-                    color: BrandColors.alabaster.withValues(alpha: 0.3),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.star_rounded,
+                        color: BrandColors.ecstasy,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        '${astro['rating']}',
+                        style: const TextStyle(
+                          color: BrandColors.ecstasy,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Container(
+                        width: 1,
+                        height: 12,
+                        color: BrandColors.alabaster.withValues(alpha: 0.3),
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          astro['experience'] ?? '',
+                          style: const TextStyle(
+                            color: BrandColors.alabaster,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    astro['experience'] ?? '',
-                    style: const TextStyle(
-                      color: BrandColors.alabaster,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
+                ),
+              ],
+              if (astro['price'] != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  astro['price'] as String,
+                  style: TextStyle(
+                    color: BrandColors.alabaster,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    letterSpacing: 0.2,
                   ),
-                ],
-              ),
-            ),
-          if (astro['price'] != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              astro['price'] as String,
-              style: TextStyle(
-                color: BrandColors.alabaster,
-                fontWeight: FontWeight.w800,
-                fontSize: 15,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
+                ),
+              ],
+            ],
+          ),
           Container(
             decoration: BoxDecoration(
               gradient: const LinearGradient(
@@ -1715,12 +1603,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   BrandColors.persianRed,
                 ],
               ),
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
                   color: BrandColors.ecstasy.withValues(alpha: 0.6),
-                  blurRadius: 15,
-                  offset: const Offset(0, 6),
+                  blurRadius: 12,
+                  offset: const Offset(0, 5),
                 ),
               ],
             ),
@@ -1729,24 +1617,30 @@ class _HomeScreenState extends State<HomeScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.transparent,
                 foregroundColor: BrandColors.alabaster,
-                minimumSize: const Size.fromHeight(48),
+                minimumSize: const Size.fromHeight(44),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 elevation: 0,
                 shadowColor: Colors.transparent,
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Icon(Icons.chat_bubble_rounded, size: 18, color: BrandColors.alabaster),
-                  SizedBox(width: 8),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.chat_bubble_rounded,
+                    color: BrandColors.alabaster,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
                   Text(
                     'Chat Now',
                     style: TextStyle(
-                      fontWeight: FontWeight.w800,
                       fontSize: 15,
-                      letterSpacing: 0.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.3,
                       color: BrandColors.alabaster,
                     ),
                   ),
@@ -2565,3 +2459,4 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
 }
+

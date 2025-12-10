@@ -25,6 +25,13 @@ import 'features/profile/edit_profile_screen.dart';
 import 'core/odoo/odoo_state.dart';
 import 'features/admin/odoo_config_screen.dart';
 import 'features/admin/admin_entry_screen.dart';
+import 'features/appointments/appointment_booking_screen.dart';
+import 'features/services/unified_appointment_booking_screen.dart';
+import 'features/services/booking_flow/step1_select_consultant_datetime.dart';
+import 'features/services/booking_flow/step2_review_details.dart';
+import 'features/services/booking_flow/step3_payment.dart';
+import 'features/services/booking_flow/step4_confirmation.dart';
+import 'core/models/odoo_models.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -83,6 +90,89 @@ class App extends StatelessWidget {
           CartScreen.route: (_) => const CartScreen(),
           OdooConfigScreen.route: (_) => const OdooConfigScreen(),
           AdminEntryScreen.route: (_) => const AdminEntryScreen(),
+          '/appointment_booking': (_) => const AppointmentBookingScreen(),
+          UnifiedAppointmentBookingScreen.route: (context) {
+            final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+            return UnifiedAppointmentBookingScreen(
+              appointmentTypeId: args?['appointmentTypeId'] as int? ?? 0,
+              serviceName: args?['serviceName'] as String? ?? 'Service',
+              price: args?['price'] as double?,
+              serviceImage: args?['serviceImage'] as String?,
+              durationMinutes: args?['durationMinutes'] as int?,
+              productId: args?['productId'] as int?,
+            );
+          },
+          // New booking flow routes
+          BookingStep1SelectConsultantDatetime.route: (context) {
+            final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+            return BookingStep1SelectConsultantDatetime(
+              appointmentTypeId: args?['appointmentTypeId'] as int? ?? 0,
+              serviceName: args?['serviceName'] as String? ?? 'Service',
+              price: args?['price'] as double? ?? 0.0,
+              serviceImage: args?['serviceImage'] as String?,
+              durationMinutes: args?['durationMinutes'] as int? ?? 30,
+              productId: args?['productId'] as int? ?? 0,
+            );
+          },
+          BookingStep2ReviewDetails.route: (context) {
+            final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+            final consultant = args?['selectedConsultant'] as OdooStaff?;
+            final slot = args?['selectedSlot'] as OdooAppointmentSlot?;
+            
+            if (consultant == null || slot == null) {
+              return const SizedBox(); // Fallback if data missing
+            }
+            
+            return BookingStep2ReviewDetails(
+              appointmentTypeId: args?['appointmentTypeId'] as int? ?? 0,
+              serviceName: args?['serviceName'] as String? ?? 'Service',
+              price: args?['price'] as double? ?? 0.0,
+              serviceImage: args?['serviceImage'] as String?,
+              durationMinutes: args?['durationMinutes'] as int? ?? 30,
+              productId: args?['productId'] as int? ?? 0,
+              selectedConsultant: consultant,
+              selectedSlot: slot,
+            );
+          },
+          BookingStep3Payment.route: (context) {
+            final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+            final consultant = args?['selectedConsultant'] as OdooStaff?;
+            final slot = args?['selectedSlot'] as OdooAppointmentSlot?;
+            
+            if (consultant == null || slot == null) {
+              return const SizedBox(); // Fallback if data missing
+            }
+            
+            return BookingStep3Payment(
+              appointmentTypeId: args?['appointmentTypeId'] as int? ?? 0,
+              serviceName: args?['serviceName'] as String? ?? 'Service',
+              price: args?['price'] as double? ?? 0.0,
+              serviceImage: args?['serviceImage'] as String?,
+              durationMinutes: args?['durationMinutes'] as int? ?? 30,
+              productId: args?['productId'] as int? ?? 0,
+              selectedConsultant: consultant,
+              selectedSlot: slot,
+            );
+          },
+          BookingStep4Confirmation.route: (context) {
+            final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+            final consultant = args?['selectedConsultant'] as OdooStaff?;
+            final slot = args?['selectedSlot'] as OdooAppointmentSlot?;
+            
+            if (consultant == null || slot == null) {
+              return const SizedBox(); // Fallback if data missing
+            }
+            
+            return BookingStep4Confirmation(
+              appointmentTypeId: args?['appointmentTypeId'] as int? ?? 0,
+              serviceName: args?['serviceName'] as String? ?? 'Service',
+              price: args?['price'] as double? ?? 0.0,
+              selectedConsultant: consultant,
+              selectedSlot: slot,
+              paymentId: args?['paymentId'] as String? ?? '',
+              saleOrderId: args?['saleOrderId'] as int?,
+            );
+          },
         },
       ),
     );

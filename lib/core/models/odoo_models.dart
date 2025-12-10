@@ -150,6 +150,9 @@ class OdooService {
   final String? categoryName;
   final String? imageUrl;
   final String? defaultCode;
+  final bool hasAppointment;
+  final int? appointmentTypeId;
+  final String? appointmentLink;
   final List<OdooSubService>? subServices;
   final List<int>? publicCategoryIds;
   final List<String>? publicCategoryNames;
@@ -163,6 +166,9 @@ class OdooService {
     this.categoryName,
     this.imageUrl,
     this.defaultCode,
+    this.hasAppointment = false,
+    this.appointmentTypeId,
+    this.appointmentLink,
     this.subServices,
     this.publicCategoryIds,
     this.publicCategoryNames,
@@ -229,6 +235,30 @@ class OdooService {
     final priceVal = listPriceRaw is num ? (listPriceRaw).toDouble() : 0.0;
     final defaultCodeVal = json['default_code'] is String ? json['default_code'] as String : null;
 
+    // Appointment-related fields - Multiple ways to detect appointment-based services:
+    // 1. Explicit appointment flags (custom fields)
+    // 2. Has appointment_type_id linked
+    // 3. Product has "appointment" in description/internal notes
+    // 4. Service type products linked to appointments
+    final hasAppointmentTypeId = json['appointment_type_id'] != null && 
+        json['appointment_type_id'] != false &&
+        json['appointment_type_id'] != 0;
+    
+    final hasExplicitFlag = json['x_studio_has_appointment'] == true ||
+        json['has_appointment'] == true ||
+        json['x_has_appointment'] == true;
+    
+    // Consider it appointment-based if ANY indicator is present
+    final hasAppointmentVal = hasAppointmentTypeId || hasExplicitFlag;
+
+    final appointmentIdVal = json['appointment_type_id'] is List
+        ? (json['appointment_type_id'] as List)[0] as int?
+        : (json['appointment_type_id'] is int ? json['appointment_type_id'] as int? : null);
+
+    final appointmentLinkVal = json['x_studio_appointment_link'] is String
+        ? json['x_studio_appointment_link'] as String?
+        : null;
+
     return OdooService(
       id: json['id'] as int,
       name: nameVal,
@@ -238,6 +268,9 @@ class OdooService {
       categoryName: categoryName,
       imageUrl: imageUrl,
       defaultCode: defaultCodeVal,
+      hasAppointment: hasAppointmentVal,
+      appointmentTypeId: appointmentIdVal,
+      appointmentLink: appointmentLinkVal,
       publicCategoryIds: publicCategoryIds,
       publicCategoryNames: publicCategoryNames,
     );
@@ -255,6 +288,9 @@ class OdooService {
       'public_categ_names': publicCategoryNames,
       'image_1920': imageUrl,
       'default_code': defaultCode,
+      'has_appointment': hasAppointment,
+      'appointment_type_id': appointmentTypeId,
+      'appointment_link': appointmentLink,
     };
   }
 }
@@ -324,6 +360,13 @@ class OdooSubService {
   final double? price;
   final int? durationMinutes;
   final String? imageUrl;
+  
+  // Appointment-related fields
+  final bool hasAppointment;
+  final int? appointmentId;
+  final String? appointmentLink;
+  final List<String>? consultants;
+  final String? meetingType;
 
   OdooSubService({
     required this.id,
@@ -332,6 +375,11 @@ class OdooSubService {
     this.price,
     this.durationMinutes,
     this.imageUrl,
+    this.hasAppointment = false,
+    this.appointmentId,
+    this.appointmentLink,
+    this.consultants,
+    this.meetingType,
   });
 
   factory OdooSubService.fromJson(Map<String, dynamic> json) {
@@ -341,6 +389,35 @@ class OdooSubService {
     final priceVal = priceRaw is num ? (priceRaw).toDouble() : null;
     final durVal = json['duration_minutes'] is int ? json['duration_minutes'] as int : null;
     final imgVal = json['image_1920'] is String ? json['image_1920'] as String : null;
+    
+    // Parse appointment-related fields
+    final hasAppointmentVal = json['x_studio_has_appointment'] == true || 
+                              json['has_appointment'] == true ||
+                              json['appointment_type_id'] != null && json['appointment_type_id'] != false;
+    
+    final appointmentIdVal = json['appointment_type_id'] is List 
+        ? (json['appointment_type_id'] as List)[0] as int?
+        : (json['appointment_type_id'] is int ? json['appointment_type_id'] as int? : null);
+    
+    final appointmentLinkVal = json['x_studio_appointment_link'] is String 
+        ? json['x_studio_appointment_link'] as String? 
+        : null;
+    
+    List<String>? consultantsVal;
+    if (json['x_studio_consultants'] is List) {
+      consultantsVal = (json['x_studio_consultants'] as List)
+          .map((e) => e.toString())
+          .toList();
+    } else if (json['staff_user_ids'] is List) {
+      consultantsVal = (json['staff_user_ids'] as List)
+          .where((e) => e is List && e.length > 1)
+          .map((e) => (e as List)[1].toString())
+          .toList();
+    }
+    
+    final meetingTypeVal = json['appointment_tz'] is String 
+        ? json['appointment_tz'] as String?
+        : (json['x_studio_meeting_type'] is String ? json['x_studio_meeting_type'] as String? : null);
 
     return OdooSubService(
       id: json['id'] as int,
@@ -349,6 +426,11 @@ class OdooSubService {
       price: priceVal,
       durationMinutes: durVal,
       imageUrl: imgVal,
+      hasAppointment: hasAppointmentVal,
+      appointmentId: appointmentIdVal,
+      appointmentLink: appointmentLinkVal,
+      consultants: consultantsVal,
+      meetingType: meetingTypeVal,
     );
   }
 }
@@ -492,3 +574,138 @@ class OdooStock {
 }
 
 
+class OdooAppointmentType {
+  final int id;
+  final String name;
+  final int? productId; // Link to the service product
+  final double? duration; // Duration in hours
+  final String? location;
+  final String? websiteUrl; // URL to book
+
+  OdooAppointmentType({
+    required this.id,
+    required this.name,
+    this.productId,
+    this.duration,
+    this.location,
+    this.websiteUrl,
+  });
+
+  factory OdooAppointmentType.fromJson(Map<String, dynamic> json) {
+    int? productId;
+    if (json['product_id'] != null) {
+      if (json['product_id'] is List) {
+        final p = json['product_id'] as List;
+        productId = p.isNotEmpty ? p[0] as int? : null;
+      } else {
+        productId = json['product_id'] as int?;
+      }
+    }
+
+    return OdooAppointmentType(
+      id: json['id'] as int,
+      name: json['name'] as String? ?? '',
+      productId: productId,
+      duration: (json['appointment_duration'] as num?)?.toDouble(),
+      location: json['location'] as String?,
+      websiteUrl: json['website_url'] as String?, // Odoo 16+ usually has this or we construct it
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'product_id': productId,
+      'appointment_duration': duration,
+      'location': location,
+      'website_url': websiteUrl,
+    };
+  }
+}
+
+/// Staff/Consultant model for appointment booking
+class OdooStaff {
+  final int id;
+  final String name;
+  final String? email;
+  final String? phone;
+  final String? imageUrl;
+
+  OdooStaff({
+    required this.id,
+    required this.name,
+    this.email,
+    this.phone,
+    this.imageUrl,
+  });
+
+  factory OdooStaff.fromJson(Map<String, dynamic> json) {
+    String? imageUrl;
+    if (json['image_128'] != null && json['image_128'] is String) {
+      final image = json['image_128'] as String;
+      if (image.startsWith('http')) {
+        imageUrl = image;
+      } else if (image.isNotEmpty) {
+        imageUrl = 'data:image/png;base64,$image';
+      }
+    }
+
+    return OdooStaff(
+      id: json['id'] as int,
+      name: json['name'] as String? ?? '',
+      email: json['email'] as String?,
+      phone: json['phone'] as String?,
+      imageUrl: imageUrl,
+    );
+  }
+}
+
+/// Represents a single available time slot
+class OdooAppointmentSlot {
+  final DateTime startTime;
+  final DateTime endTime;
+  final int staffId;
+  final String? staffName;
+
+  OdooAppointmentSlot({
+    required this.startTime,
+    required this.endTime,
+    required this.staffId,
+    this.staffName,
+  });
+
+  String get formattedTime {
+    final hour = startTime.hour;
+    final minute = startTime.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    return '$displayHour:$minute $period';
+  }
+
+  String get formattedTimeRange {
+    final startHour = startTime.hour;
+    final startMin = startTime.minute.toString().padLeft(2, '0');
+    final endHour = endTime.hour;
+    final endMin = endTime.minute.toString().padLeft(2, '0');
+    
+    String formatHour(int h, int m) {
+      final period = h >= 12 ? 'PM' : 'AM';
+      final displayH = h > 12 ? h - 12 : (h == 0 ? 12 : h);
+      return '$displayH:$m $period';
+    }
+    
+    return '${formatHour(startHour, int.parse(startMin))} - ${formatHour(endHour, int.parse(endMin))}';
+  }
+}
+
+/// Availability schedule for a day
+class OdooAppointmentAvailability {
+  final DateTime date;
+  final List<OdooAppointmentSlot> slots;
+
+  OdooAppointmentAvailability({
+    required this.date,
+    required this.slots,
+  });
+}

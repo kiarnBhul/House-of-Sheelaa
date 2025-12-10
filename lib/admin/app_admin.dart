@@ -84,6 +84,11 @@ class AdminApp extends StatelessWidget {
         // Add route observer for performance monitoring if needed
       ],
       redirect: (context, state) {
+        // Wait for auth state to initialize from storage
+        if (!auth.isInitialized) {
+          return null; // Stay on current route while loading
+        }
+        
         final loggedIn = auth.isAuthenticated;
         final goingToLogin = state.matchedLocation.startsWith('/hofs-admin/login');
         if (!loggedIn && !goingToLogin) return '/hofs-admin/login';

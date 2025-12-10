@@ -4,6 +4,8 @@ import 'odoo_config.dart';
 import 'odoo_api_service.dart';
 import 'global_odoo_config_service.dart';
 import '../models/odoo_models.dart';
+import '../cache/product_cache_service.dart';
+import '../cache/slot_cache_service.dart';
 
 class OdooState extends ChangeNotifier {
   final OdooApiService _apiService = OdooApiService();
@@ -17,7 +19,15 @@ class OdooState extends ChangeNotifier {
   List<OdooService> _services = [];
   List<OdooCategory> _categories = [];
   List<OdooEvent> _events = [];
+  List<OdooAppointmentType> _appointmentTypes = [];
   Map<int, OdooStock> _stock = {};
+
+  // Cache freshness tracking
+  DateTime? _lastProductsFetch;
+  DateTime? _lastServicesFetch;
+  DateTime? _lastCategoriesFetch;
+  DateTime? _lastAppointmentTypesFetch;
+  final Duration _cacheTtl = const Duration(minutes: 10);
 
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
@@ -26,66 +36,126 @@ class OdooState extends ChangeNotifier {
   List<OdooService> get services => _services;
   List<OdooCategory> get categories => _categories;
   List<OdooEvent> get events => _events;
+  List<OdooAppointmentType> get appointmentTypes => _appointmentTypes;
   Map<int, OdooStock> get stock => _stock;
 
   OdooState() {
     _initialize();
   }
 
+  bool _isStale(DateTime? lastFetch) {
+    if (lastFetch == null) return true;
+    return DateTime.now().difference(lastFetch) > _cacheTtl;
+  }
+
   Future<void> _initialize() async {
     debugPrint('[OdooState] Initializing...');
     
-    // PRIORITY 1: Try to load global configuration from Firestore (for all users)
-    try {
-      debugPrint('[OdooState] Attempting to load global Odoo configuration...');
-      final hasGlobalConfig = await _globalConfigService.loadGlobalConfig();
-      
-      if (hasGlobalConfig) {
-        debugPrint('[OdooState] ✅ Global configuration loaded successfully');
-        // Reload local config to pick up the global settings
-        await OdooConfig.loadConfig();
-        _isAuthenticated = OdooConfig.isAuthenticated;
-        
-        // Auto-connect using global config
-        if (OdooConfig.isConfigured) {
-          debugPrint('[OdooState] Auto-connecting with global config...');
-          await _autoConnect();
-        }
-        notifyListeners();
-        return;
-      } else {
-        debugPrint('[OdooState] ⚠️ No global configuration found');
-      }
-    } catch (e) {
-      debugPrint('[OdooState] ❌ Error loading global config: $e');
-    }
-
-    // PRIORITY 2: Fall back to local configuration (for development/admin)
-    debugPrint('[OdooState] Falling back to local configuration...');
-    await OdooConfig.loadConfig();
-    _isAuthenticated = OdooConfig.isAuthenticated;
+    // PHASE 1: Load cached data immediately for instant UI (non-blocking)
+    _loadCachedDataAsync();
     
-    // If local config is missing, try user-specific Firestore config (legacy)
-    if (!OdooConfig.isConfigured) {
-      try {
-        final ok = await OdooConfig.loadFromFirestore();
-        if (ok) {
-          await OdooConfig.loadConfig();
-          _isAuthenticated = OdooConfig.isAuthenticated;
-        }
-      } catch (_) {}
-    }
-
-    // Auto-connect to Odoo in background if configured
-    if (OdooConfig.isConfigured) {
-      if (!_isAuthenticated) {
-        await _autoConnect();
-      } else {
-        _loadDataInBackground();
-      }
+    // Load config immediately with timeout (no blocking)
+    try {
+      await OdooConfig.loadConfig().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => debugPrint('[OdooState] Config load timed out'),
+      );
+      _isAuthenticated = OdooConfig.isAuthenticated;
+    } catch (e) {
+      debugPrint('[OdooState] Config load error: $e');
+      _isAuthenticated = false;
     }
     
     notifyListeners();
+    
+    // Load global config + auth in background (non-blocking)
+    _initializeAsync();
+  }
+
+  /// PHASE 1: Load cached data in background for instant app startup
+  void _loadCachedDataAsync() {
+    Future.microtask(() async {
+      try {
+        debugPrint('[OdooState] Loading cached data...');
+        
+        // ⚡ Clean up expired slot cache on startup
+        SlotCacheService.clearExpiredCache();
+        
+        final cachedProducts = await ProductCacheService.loadProducts();
+        final cachedServices = await ProductCacheService.loadServices();
+        final cachedCategories = await ProductCacheService.loadCategories();
+        final cachedAppointmentTypes = await ProductCacheService.loadAppointmentTypes();
+        
+        if (cachedProducts != null) {
+          _products = cachedProducts;
+          debugPrint('[OdooState] ✅ Loaded ${cachedProducts.length} cached products');
+        }
+        if (cachedServices != null) {
+          _services = cachedServices;
+          debugPrint('[OdooState] ✅ Loaded ${cachedServices.length} cached services');
+        }
+        if (cachedCategories != null) {
+          _categories = cachedCategories;
+          debugPrint('[OdooState] ✅ Loaded ${cachedCategories.length} cached categories');
+        }
+        if (cachedAppointmentTypes != null) {
+          _appointmentTypes = cachedAppointmentTypes;
+          debugPrint('[OdooState] ✅ Loaded ${cachedAppointmentTypes.length} cached appointment types');
+        }
+        
+        notifyListeners();
+      } catch (e) {
+        debugPrint('[OdooState] Cache load error (non-critical): $e');
+      }
+    });
+  }
+
+  void _initializeAsync() {
+    Future.microtask(() async {
+      try {
+        debugPrint('[OdooState] Loading config + auth in background...');
+        
+        try {
+          final hasGlobalConfig = await _globalConfigService.loadGlobalConfig().timeout(
+            const Duration(seconds: 10), // Increased from 3 to 10 seconds
+            onTimeout: () => false,
+          );
+          
+          if (hasGlobalConfig) {
+            debugPrint('[OdooState] ✅ Global config loaded');
+            await OdooConfig.loadConfig();
+            _isAuthenticated = OdooConfig.isAuthenticated;
+          }
+        } catch (e) {
+          debugPrint('[OdooState] Global config error (continuing): $e');
+        }
+        
+        if (!OdooConfig.isConfigured) {
+          try {
+            await OdooConfig.loadFromFirestore().timeout(
+              const Duration(seconds: 2),
+              onTimeout: () => false,
+            );
+            if (OdooConfig.isConfigured) {
+              await OdooConfig.loadConfig();
+              _isAuthenticated = OdooConfig.isAuthenticated;
+            }
+          } catch (_) {}
+        }
+        
+        if (OdooConfig.isConfigured) {
+          if (!_isAuthenticated) {
+            await _autoConnect();
+          } else {
+            _loadDataInBackground();
+          }
+        }
+        
+        notifyListeners();
+      } catch (e) {
+        debugPrint('[OdooState] Async init error: $e');
+      }
+    });
   }
 
   /// Auto-connect to Odoo in background (silent, no user interaction)
@@ -111,22 +181,50 @@ class OdooState extends ChangeNotifier {
   /// Load data in background without blocking UI
   Future<void> _loadDataInBackground() async {
     if (!_isAuthenticated) return;
-    
-    // Load products in background (do not filter by stock so services are included)
+
+    // Warm caches without blocking UI; these will respect freshness checks
     Future.microtask(() async {
       try {
-        await loadProducts(inStock: false);
-      } catch (e) {
-        // Silent fail
-      }
+        await warmCatalogAndAppointments();
+      } catch (_) {}
     });
-    // Load categories and services as well
-    Future.microtask(() async {
-      try {
-        await loadCategories();
-        await loadServices();
-      } catch (e) {}
-    });
+  }
+
+  Future<void> warmCatalogAndAppointments({bool force = false}) async {
+    await Future.wait([
+      ensureProductsFresh(inStock: false, force: force),
+      ensureCategoriesFresh(force: force),
+      ensureServicesFresh(force: force),
+      ensureAppointmentTypesFresh(force: force),
+    ]);
+  }
+
+  Future<void> ensureProductsFresh({bool inStock = true, bool force = false}) async {
+    if (!_isAuthenticated) return;
+    if (force || _products.isEmpty || _isStale(_lastProductsFetch)) {
+      await loadProducts(inStock: inStock);
+    }
+  }
+
+  Future<void> ensureServicesFresh({bool force = false}) async {
+    if (!_isAuthenticated) return;
+    if (force || _services.isEmpty || _isStale(_lastServicesFetch)) {
+      await loadServices();
+    }
+  }
+
+  Future<void> ensureAppointmentTypesFresh({bool force = false}) async {
+    if (!_isAuthenticated) return;
+    if (force || _appointmentTypes.isEmpty || _isStale(_lastAppointmentTypesFetch)) {
+      await loadAppointmentTypes();
+    }
+  }
+
+  Future<void> ensureCategoriesFresh({bool force = false}) async {
+    if (!_isAuthenticated) return;
+    if (force || _categories.isEmpty || _isStale(_lastCategoriesFetch)) {
+      await loadCategories();
+    }
   }
 
   /// Configure Odoo connection
@@ -204,6 +302,11 @@ class OdooState extends ChangeNotifier {
         categories: categories,
         inStock: inStock,
       );
+      _lastProductsFetch = DateTime.now();
+      
+      // PHASE 1: Auto-save products to cache
+      ProductCacheService.cacheProducts(_products);
+      
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -228,11 +331,45 @@ class OdooState extends ChangeNotifier {
     try {
       _services = await _apiService.getServices();
       debugPrint('[OdooState] loaded services: ${_services.length}');
+      _lastServicesFetch = DateTime.now();
       if (_services.isNotEmpty) {
         for (var s in _services.take(6)) {
           debugPrint('[OdooState] service sample: id=${s.id} name="${s.name}" categ=${s.categoryId} public=${s.publicCategoryIds}');
         }
       }
+      
+      // PHASE 1: Auto-save services to cache
+      ProductCacheService.cacheServices(_services);
+      
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Load appointment types from Odoo
+  Future<void> loadAppointmentTypes() async {
+    if (!_isAuthenticated) {
+      _error = 'Not authenticated with Odoo';
+      notifyListeners();
+      return;
+    }
+
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      _appointmentTypes = await _apiService.getAppointmentTypes();
+      debugPrint('[OdooState] loaded appointment types: ${_appointmentTypes.length}');
+      _lastAppointmentTypesFetch = DateTime.now();
+      
+      // PHASE 1: Auto-save appointment types to cache
+      ProductCacheService.cacheAppointmentTypes(_appointmentTypes);
+      
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -257,11 +394,16 @@ class OdooState extends ChangeNotifier {
     try {
       _categories = await _apiService.getCategories();
       debugPrint('[OdooState] loaded categories: ${_categories.length}');
+      _lastCategoriesFetch = DateTime.now();
       if (_categories.isNotEmpty) {
         for (var c in _categories.take(10)) {
           debugPrint('[OdooState] category sample: id=${c.id} name="${c.name}" parent=${c.parentId}');
         }
       }
+      
+      // PHASE 1: Auto-save categories to cache
+      ProductCacheService.cacheCategories(_categories);
+      
       _isLoading = false;
       notifyListeners();
     } catch (e) {

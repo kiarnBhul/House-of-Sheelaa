@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import 'package:house_of_sheelaa/theme/brand_theme.dart';
-import 'package:house_of_sheelaa/features/auth/state/auth_state.dart';
 import '../../core/odoo/odoo_config.dart';
 import '../../core/odoo/odoo_state.dart';
 import '../../core/odoo/global_odoo_config_service.dart';

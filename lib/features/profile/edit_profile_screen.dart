@@ -14,6 +14,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final formKey = GlobalKey<FormState>();
   final firstNameCtrl = TextEditingController();
   final lastNameCtrl = TextEditingController();
+  final emailCtrl = TextEditingController();
+  final phoneCtrl = TextEditingController();
   DateTime? dob;
   final options = const [
     'Numerology',
@@ -31,6 +33,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final auth = context.read<AuthState>();
     firstNameCtrl.text = auth.firstName ?? '';
     lastNameCtrl.text = auth.lastName ?? '';
+    emailCtrl.text = auth.email ?? '';
+    phoneCtrl.text = auth.phone ?? '';
     dob = auth.dob;
     selected.addAll(auth.interests);
   }
@@ -39,6 +43,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void dispose() {
     firstNameCtrl.dispose();
     lastNameCtrl.dispose();
+    emailCtrl.dispose();
+    phoneCtrl.dispose();
     super.dispose();
   }
 
@@ -105,6 +111,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final ok = await auth.saveProfile(
       firstName: firstNameCtrl.text.trim(),
       lastName: lastNameCtrl.text.trim(),
+      email: emailCtrl.text.trim(),
+      phone: phoneCtrl.text.trim(),
       dob: dob!,
       interests: selected,
     );
@@ -256,6 +264,96 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: emailCtrl,
+                              keyboardType: TextInputType.emailAddress,
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(
+                                    color: BrandColors.alabaster,
+                                  ),
+                              decoration: InputDecoration(
+                                labelText: 'Email',
+                                labelStyle: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      color: BrandColors.alabaster
+                                          .withValues(alpha: 0.85),
+                                    ),
+                                filled: true,
+                                fillColor: BrandColors.alabaster
+                                    .withValues(alpha: 0.08),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: BrandColors.alabaster
+                                        .withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: const BorderSide(
+                                    color: BrandColors.ecstasy,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Email is required';
+                                }
+                                if (!v.contains('@') || !v.contains('.')) {
+                                  return 'Enter a valid email';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: phoneCtrl,
+                              keyboardType: TextInputType.phone,
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(
+                                    color: BrandColors.alabaster,
+                                  ),
+                              decoration: InputDecoration(
+                                labelText: 'Phone Number',
+                                labelStyle: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      color: BrandColors.alabaster
+                                          .withValues(alpha: 0.85),
+                                    ),
+                                filled: true,
+                                fillColor: BrandColors.alabaster
+                                    .withValues(alpha: 0.08),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: BrandColors.alabaster
+                                        .withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: const BorderSide(
+                                    color: BrandColors.ecstasy,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Phone number is required';
+                                }
+                                if (v.length < 10) {
+                                  return 'Enter a valid phone number';
+                                }
+                                return null;
+                              },
                             ),
                             const SizedBox(height: 16),
                             InkWell(

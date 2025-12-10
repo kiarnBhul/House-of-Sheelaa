@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:house_of_sheelaa/theme/brand_theme.dart';
 import 'numerology_service_form_screen.dart';
+import 'service_detail_page_new.dart';
 import 'package:house_of_sheelaa/core/odoo/odoo_state.dart';
 import 'package:house_of_sheelaa/core/models/odoo_models.dart';
 
@@ -71,29 +72,68 @@ class ServiceDetailScreen extends StatelessWidget {
           return byPublic || byInternal;
         }).toList();
 
+        // Ensure appointment types are loaded once so we can map services to appointments
+        if (odooState.appointmentTypes.isEmpty && odooState.isAuthenticated) {
+          Future.microtask(() async {
+            try {
+              await odooState.loadAppointmentTypes();
+            } catch (_) {}
+          });
+        }
+
+        // Build a map of service IDs to appointment types for quick lookup
+        final appointmentMap = <int, OdooAppointmentType>{};
+        for (var apt in odooState.appointmentTypes) {
+          if (apt.productId != null) {
+            appointmentMap[apt.productId!] = apt;
+          }
+        }
+
         final built = <Map<String, dynamic>>[];
 
         if (services.isNotEmpty) {
           for (var s in services) {
+            // Check if this service has an appointment type linked
+            final hasAppt = appointmentMap.containsKey(s.id);
+            final apptType = appointmentMap[s.id];
+
+            // Healing category override: force appointment flow even if metadata is missing
+            final bool forceHealingAppointment = (cat.name.toLowerCase() == 'healing');
+
             if (s.subServices != null && s.subServices!.isNotEmpty) {
+              // Only use subServices if they exist - don't duplicate the parent
               for (var ss in s.subServices!) {
+                final resolvedAppointmentId = ss.appointmentId ?? apptType?.id ?? s.appointmentTypeId;
                 built.add({
                   'type': 'service',
                   'id': ss.id,
                   'name': ss.name,
                   'image': ss.imageUrl ?? s.imageUrl ?? 'assets/images/background.jpg',
                   'price': ss.price ?? s.price,
-                  'durationMin': ss.durationMinutes,
+                  'durationMin': ss.durationMinutes ??
+                      (apptType?.duration != null ? (apptType!.duration! * 60).round() : null),
+                  'hasAppointment': forceHealingAppointment || ss.hasAppointment || hasAppt,
+                    'appointmentId': forceHealingAppointment
+                      ? (resolvedAppointmentId ?? (appointmentMap.values.isNotEmpty ? appointmentMap.values.first.id : null))
+                      : resolvedAppointmentId,
+                  'appointmentLink': ss.appointmentLink ?? apptType?.websiteUrl ?? s.appointmentLink,
                 });
               }
             } else {
+              // Only add parent if no subServices exist
+              final resolvedAppointmentId = apptType?.id ?? s.appointmentTypeId;
               built.add({
                 'type': 'service',
                 'id': s.id,
                 'name': s.name,
                 'image': s.imageUrl ?? 'assets/images/background.jpg',
                 'price': s.price,
-                'durationMin': null,
+                'durationMin': apptType?.duration != null ? (apptType!.duration! * 60).round() : null,
+                'hasAppointment': forceHealingAppointment || s.hasAppointment || hasAppt,
+                'appointmentId': forceHealingAppointment
+                  ? (resolvedAppointmentId ?? (appointmentMap.values.isNotEmpty ? appointmentMap.values.first.id : null))
+                  : resolvedAppointmentId,
+                'appointmentLink': apptType?.websiteUrl ?? s.appointmentLink,
               });
             }
           }
@@ -395,11 +435,15 @@ class ServiceDetailScreen extends StatelessWidget {
                       delegate: SliverChildBuilderDelegate((context, index) {
                         final m = subs[index].cast<String, dynamic>();
                         final title = (m['name'] as String?) ?? '';
+                        final serviceId = (m['id'] as int?);
                         final img = (m['image'] as String?) ?? '';
                         final price = (m['price'] as num?);
                         final pmin = (m['priceMin'] as num?);
                         final pmax = (m['priceMax'] as num?);
                         final mins = (m['durationMin'] as int?);
+                        final hasAppointment = m['hasAppointment'] as bool? ?? false;
+                        final appointmentId = m['appointmentId'] as int?;
+                        final appointmentLink = m['appointmentLink'] as String?;
 
                         String priceText = '';
                         if (pmin != null && pmax != null) {
@@ -414,21 +458,48 @@ class ServiceDetailScreen extends StatelessWidget {
                           priceText = 'Price varies — $mins minutes';
                         }
 
-                        return GestureDetector(
-                          onTap: () {
-                            // Navigate to numerology form if it's a numerology service
-                            if (name == 'Numerology') {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => NumerologyServiceFormScreen(
-                                    serviceName: title,
-                                    serviceImage: img,
-                                  ),
+                        void handleTap() {
+                          // Navigate to numerology form if it's a numerology service
+                          if (name == 'Numerology') {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => NumerologyServiceFormScreen(
+                                  serviceName: title,
+                                  serviceImage: img,
                                 ),
-                              );
-                            }
-                          },
+                              ),
+                            );
+                            return;
+                          }
+
+                          // For healing services, trigger appointment booking
+                          if (serviceId == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Service not configured correctly'),
+                                backgroundColor: BrandColors.persianRed,
+                              ),
+                            );
+                            return;
+                          }
+
+                          _startBookingFlow(
+                            context,
+                            title: title,
+                            serviceId: serviceId,
+                            price: price?.toDouble(),
+                            durationMinutes: mins,
+                            image: img,
+                            categoryName: name,
+                            appointmentId: appointmentId,
+                            appointmentLink: appointmentLink,
+                            hasAppointmentFlag: hasAppointment,
+                          );
+                        }
+
+                        return GestureDetector(
+                          onTap: handleTap,
                           child: Container(
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
@@ -589,5 +660,71 @@ class ServiceDetailScreen extends StatelessWidget {
         leading: BackButton(color: BrandColors.alabaster),
       ),
     );
+  }
+
+  Future<void> _startBookingFlow(
+    BuildContext context, {
+    required String title,
+    required int serviceId,
+    double? price,
+    int? durationMinutes,
+    String? image,
+    String? categoryName,
+    int? appointmentId,
+    String? appointmentLink,
+    bool hasAppointmentFlag = false,
+  }) async {
+    try {
+      int? resolvedAppointmentId = appointmentId;
+
+      // Use already-loaded appointment types (faster, no extra network)
+      final odooState = Provider.of<OdooState>(context, listen: false);
+      if (resolvedAppointmentId == null && odooState.appointmentTypes.isNotEmpty) {
+        OdooAppointmentType? matchedType;
+        for (var type in odooState.appointmentTypes) {
+          if (type.productId == serviceId) {
+            matchedType = type;
+            break;
+          }
+        }
+        // Fallback: match by name
+        matchedType ??= odooState.appointmentTypes.firstWhere(
+          (t) => t.name.toLowerCase() == title.toLowerCase(),
+          orElse: () => odooState.appointmentTypes.first,
+        );
+        resolvedAppointmentId = matchedType.id;
+      }
+
+      // Navigate to service detail page (handles both appointment and product flows)
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ServiceDetailPageNew(
+              serviceName: title,
+              serviceId: serviceId,
+              serviceImage: image,
+              price: price,
+              durationMinutes: durationMinutes,
+              categoryName: categoryName,
+              appointmentId: resolvedAppointmentId,
+              appointmentLink: appointmentLink,
+              hasAppointment: resolvedAppointmentId != null,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error in _startBookingFlow: $e');
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: BrandColors.persianRed,
+          ),
+        );
+      }
+    }
   }
 }
