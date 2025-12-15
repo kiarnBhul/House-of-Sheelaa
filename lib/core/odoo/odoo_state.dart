@@ -329,13 +329,16 @@ class OdooState extends ChangeNotifier {
     notifyListeners();
 
     try {
+      debugPrint('[OdooState] 🔄 Starting getServices call...');
       _services = await _apiService.getServices();
-      debugPrint('[OdooState] loaded services: ${_services.length}');
+      debugPrint('[OdooState] ✅ loaded services: ${_services.length}');
       _lastServicesFetch = DateTime.now();
       if (_services.isNotEmpty) {
-        for (var s in _services.take(6)) {
-          debugPrint('[OdooState] service sample: id=${s.id} name="${s.name}" categ=${s.categoryId} public=${s.publicCategoryIds}');
+        for (var s in _services.take(3)) {
+          debugPrint('[OdooState] service sample: id=${s.id} name="${s.name}" hasAppointment=${s.hasAppointment} appointmentId=${s.appointmentTypeId}');
         }
+      } else {
+        debugPrint('[OdooState] ⚠️ WARNING: getServices returned ZERO services!');
       }
       
       // PHASE 1: Auto-save services to cache
@@ -345,8 +348,10 @@ class OdooState extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       _error = e.toString();
+      debugPrint('[OdooState] ❌ ERROR loading services: $e');
       _isLoading = false;
       notifyListeners();
+      rethrow; // Re-throw so timeout can catch it
     }
   }
 

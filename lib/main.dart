@@ -20,12 +20,14 @@ import 'features/auth/presentation/screens/language_screen.dart';
 import 'features/auth/presentation/screens/gender_screen.dart';
 import 'features/store/shop_screen_new.dart';
 import 'features/store/cart_screen.dart';
+import 'features/store/checkout_screen.dart';
 import 'features/store/state/cart_state.dart';
 import 'features/profile/edit_profile_screen.dart';
 import 'core/odoo/odoo_state.dart';
 import 'features/admin/odoo_config_screen.dart';
 import 'features/admin/admin_entry_screen.dart';
 import 'features/appointments/appointment_booking_screen.dart';
+import 'features/appointments/my_appointments_screen.dart';
 import 'features/services/unified_appointment_booking_screen.dart';
 import 'features/services/booking_flow/step1_select_consultant_datetime.dart';
 import 'features/services/booking_flow/step2_review_details.dart';
@@ -88,9 +90,11 @@ class App extends StatelessWidget {
           GenderScreen.route: (_) => const GenderScreen(),
           ShopScreenNew.route: (_) => const ShopScreenNew(),
           CartScreen.route: (_) => const CartScreen(),
+          CheckoutScreen.route: (_) => const CheckoutScreen(),
           OdooConfigScreen.route: (_) => const OdooConfigScreen(),
           AdminEntryScreen.route: (_) => const AdminEntryScreen(),
           '/appointment_booking': (_) => const AppointmentBookingScreen(),
+          MyAppointmentsScreen.route: (_) => const MyAppointmentsScreen(),
           UnifiedAppointmentBookingScreen.route: (context) {
             final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
             return UnifiedAppointmentBookingScreen(

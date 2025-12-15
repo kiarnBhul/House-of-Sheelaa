@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 class OdooProduct {
   final int id;
   final String name;
@@ -12,6 +14,7 @@ class OdooProduct {
   final String? defaultCode;
   final String? barcode;
   final String? type;
+  final List<int>? productVariantIds; // List of variant IDs for this product template
 
   OdooProduct({
     required this.id,
@@ -27,6 +30,7 @@ class OdooProduct {
     this.defaultCode,
     this.barcode,
     this.type,
+    this.productVariantIds,
   });
 
   factory OdooProduct.fromJson(Map<String, dynamic> json) {
@@ -105,6 +109,12 @@ class OdooProduct {
     final defaultCodeVal = json['default_code'] is String ? json['default_code'] as String : null;
     final barcodeVal = json['barcode'] is String ? json['barcode'] as String : null;
 
+    // Parse product_variant_ids
+    List<int>? productVariantIds;
+    if (json['product_variant_ids'] != null && json['product_variant_ids'] is List) {
+      productVariantIds = (json['product_variant_ids'] as List).whereType<int>().toList();
+    }
+
     return OdooProduct(
       id: json['id'] as int,
       name: nameVal,
@@ -119,6 +129,7 @@ class OdooProduct {
       defaultCode: defaultCodeVal,
       barcode: barcodeVal,
       type: type,
+      productVariantIds: productVariantIds,
     );
   }
 
@@ -137,6 +148,7 @@ class OdooProduct {
       'default_code': defaultCode,
       'barcode': barcode,
       'type': type,
+      'product_variant_ids': productVariantIds,
     };
   }
 }
@@ -156,6 +168,7 @@ class OdooService {
   final List<OdooSubService>? subServices;
   final List<int>? publicCategoryIds;
   final List<String>? publicCategoryNames;
+  final List<int>? productVariantIds; // List of variant IDs for this product template
 
   OdooService({
     required this.id,
@@ -172,6 +185,7 @@ class OdooService {
     this.subServices,
     this.publicCategoryIds,
     this.publicCategoryNames,
+    this.productVariantIds,
   });
 
   factory OdooService.fromJson(Map<String, dynamic> json) {
@@ -237,12 +251,25 @@ class OdooService {
 
     // Appointment-related fields - Multiple ways to detect appointment-based services:
     // 1. Explicit appointment flags (custom fields)
-    // 2. Has appointment_type_id linked
+    // 2. Has appointment_type_id linked (standard or custom field)
     // 3. Product has "appointment" in description/internal notes
     // 4. Service type products linked to appointments
-    final hasAppointmentTypeId = json['appointment_type_id'] != null && 
-        json['appointment_type_id'] != false &&
-        json['appointment_type_id'] != 0;
+    
+    // Check standard appointment_type_id field
+    final appointmentTypeIdField = json['appointment_type_id'];
+    
+    // Helper to check if field has valid appointment ID
+    bool hasValidAppointmentId(dynamic value) {
+      if (value == null || value == false) return false;
+      if (value is int && value > 0) return true;
+      if (value is List && value.isNotEmpty) {
+        final firstVal = value[0];
+        return firstVal is int && firstVal > 0;
+      }
+      return false;
+    }
+    
+    final hasAppointmentTypeId = hasValidAppointmentId(appointmentTypeIdField);
     
     final hasExplicitFlag = json['x_studio_has_appointment'] == true ||
         json['has_appointment'] == true ||
@@ -251,13 +278,25 @@ class OdooService {
     // Consider it appointment-based if ANY indicator is present
     final hasAppointmentVal = hasAppointmentTypeId || hasExplicitFlag;
 
-    final appointmentIdVal = json['appointment_type_id'] is List
-        ? (json['appointment_type_id'] as List)[0] as int?
-        : (json['appointment_type_id'] is int ? json['appointment_type_id'] as int? : null);
+    // Extract appointment type ID from the field
+    int? appointmentIdVal;
+    if (appointmentTypeIdField != null && appointmentTypeIdField != false) {
+      if (appointmentTypeIdField is List && appointmentTypeIdField.isNotEmpty) {
+        appointmentIdVal = appointmentTypeIdField[0] as int?;
+      } else if (appointmentTypeIdField is int) {
+        appointmentIdVal = appointmentTypeIdField;
+      }
+    }
 
     final appointmentLinkVal = json['x_studio_appointment_link'] is String
         ? json['x_studio_appointment_link'] as String?
         : null;
+
+    // Parse product_variant_ids
+    List<int>? productVariantIds;
+    if (json['product_variant_ids'] != null && json['product_variant_ids'] is List) {
+      productVariantIds = (json['product_variant_ids'] as List).whereType<int>().toList();
+    }
 
     return OdooService(
       id: json['id'] as int,
@@ -273,6 +312,7 @@ class OdooService {
       appointmentLink: appointmentLinkVal,
       publicCategoryIds: publicCategoryIds,
       publicCategoryNames: publicCategoryNames,
+      productVariantIds: productVariantIds,
     );
   }
 
@@ -289,8 +329,11 @@ class OdooService {
       'image_1920': imageUrl,
       'default_code': defaultCode,
       'has_appointment': hasAppointment,
-      'appointment_type_id': appointmentTypeId,
+      // Save appointment_type_id in the same format we expect from Odoo
+      // This ensures cache can be properly read back
+      'appointment_type_id': appointmentTypeId != null ? [appointmentTypeId, ""] : false,
       'appointment_link': appointmentLink,
+      'product_variant_ids': productVariantIds,
     };
   }
 }
@@ -708,4 +751,106 @@ class OdooAppointmentAvailability {
     required this.date,
     required this.slots,
   });
+}
+
+/// Product variant with attributes (e.g., size, color options)
+class OdooProductVariant {
+  final int id;
+  final String name;
+  final double price;
+  final String? displayName; // Full name with attributes like "Product - Color: Red, Size: M"
+  final Map<String, String> attributes; // Attribute name -> value
+
+  OdooProductVariant({
+    required this.id,
+    required this.name,
+    required this.price,
+    this.displayName,
+    this.attributes = const {},
+  });
+
+  factory OdooProductVariant.fromJson(Map<String, dynamic> json) {
+    final nameVal = json['name'] is String ? json['name'] as String : '';
+    final displayNameVal = json['display_name'] is String ? json['display_name'] as String : null;
+    
+    // Try to get price from lst_price first (actual sales price), fallback to list_price
+    final lstPriceRaw = json['lst_price'];
+    final listPriceRaw = json['list_price'];
+    final priceVal = (lstPriceRaw is num ? lstPriceRaw.toDouble() : null) ??
+                     (listPriceRaw is num ? listPriceRaw.toDouble() : 0.0);
+
+    // Parse attributes from display_name
+    // Format: "Product Name - Attribute: Value" or "Product Name (Attribute: Value)" or "Product Name (Value)"
+    Map<String, String> attributes = {};
+    if (displayNameVal != null) {
+      // Try parsing with parentheses first: "Lama Fera (Healing Type: Without Feedback)" or "Lama Fera (Without Feedback)"
+      if (displayNameVal.contains('(') && displayNameVal.contains(')')) {
+        final startIdx = displayNameVal.indexOf('(');
+        final endIdx = displayNameVal.lastIndexOf(')');
+        if (startIdx != -1 && endIdx != -1 && startIdx < endIdx) {
+          final attrPart = displayNameVal.substring(startIdx + 1, endIdx).trim();
+          
+          // If it contains a colon, parse as "Attribute: Value"
+          if (attrPart.contains(':')) {
+            final attrPairs = attrPart.split(',');
+            for (var pair in attrPairs) {
+              if (pair.contains(':')) {
+                final kv = pair.split(':');
+                if (kv.length >= 2) {
+                  attributes[kv[0].trim()] = kv.sublist(1).join(':').trim();
+                }
+              }
+            }
+          } else {
+            // If no colon, treat the value as the attribute value with a default attribute name
+            // We'll use a generic name that will be replaced by fetching from product_template_attribute_value_ids
+            attributes['Option'] = attrPart;
+          }
+        }
+      }
+      // Try parsing with dash: "Lama Fera - Healing Type: Without Feedback"
+      else if (displayNameVal.contains('-') && displayNameVal.contains(':')) {
+        final parts = displayNameVal.split('-');
+        if (parts.length > 1) {
+          final attrPart = parts.sublist(1).join('-').trim();
+          final attrPairs = attrPart.split(',');
+          for (var pair in attrPairs) {
+            if (pair.contains(':')) {
+              final kv = pair.split(':');
+              if (kv.length >= 2) {
+                attributes[kv[0].trim()] = kv.sublist(1).join(':').trim();
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (kDebugMode) {
+      debugPrint('[OdooProductVariant] Parsing variant:');
+      debugPrint('  ID: ${json['id']}');
+      debugPrint('  Name: $nameVal');
+      debugPrint('  Display Name: $displayNameVal');
+      debugPrint('  Price: $priceVal');
+      debugPrint('  Extracted Attributes: $attributes');
+    }
+
+    return OdooProductVariant(
+      id: json['id'] as int,
+      name: nameVal,
+      price: priceVal,
+      displayName: displayNameVal,
+      attributes: attributes,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'list_price': price,
+      'display_name': displayName,
+      'attributes': attributes,
+    };
+  }
 }

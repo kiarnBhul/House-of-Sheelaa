@@ -379,7 +379,42 @@ Current error: $errorString''',
           final data = jsonDecode(response.body);
           if (data['error'] != null) {
             final err = data['error'];
-            final errMsg = err is Map && err['message'] != null ? err['message'].toString() : err.toString();
+            
+            // Enhanced error logging - capture ALL error details
+            debugPrint('[OdooApi] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            debugPrint('[OdooApi] 🔴 ODOO ERROR DETAILS:');
+            debugPrint('[OdooApi] Full error object: $err');
+            
+            String errMsg = 'Unknown error';
+            String? errData;
+            String? errDebugInfo;
+            
+            if (err is Map) {
+              // Extract error message
+              if (err['message'] != null) {
+                errMsg = err['message'].toString();
+              } else if (err['data'] != null && err['data'] is Map && err['data']['message'] != null) {
+                errMsg = err['data']['message'].toString();
+              }
+              
+              // Extract error data (often contains the real reason)
+              if (err['data'] != null) {
+                errData = err['data'].toString();
+                debugPrint('[OdooApi] Error data: $errData');
+              }
+              
+              // Extract debug info
+              if (err['debug'] != null) {
+                errDebugInfo = err['debug'].toString();
+                debugPrint('[OdooApi] Debug info: $errDebugInfo');
+              }
+            } else {
+              errMsg = err.toString();
+            }
+            
+            debugPrint('[OdooApi] Error message: $errMsg');
+            debugPrint('[OdooApi] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            
             // If error indicates an authentication/session issue, try to re-authenticate and retry once
             if (errMsg.toLowerCase().contains('access denied') || errMsg.toLowerCase().contains('session') || errMsg.toLowerCase().contains('authentication')) {
               if (attempts < 2) {
@@ -389,9 +424,9 @@ Current error: $errorString''',
                   continue;
                 }
               }
-              throw Exception('Odoo RPC Error: $errMsg');
+              throw Exception('Odoo RPC Error: $errMsg${errData != null ? '\nData: $errData' : ''}');
             }
-            throw Exception('Odoo RPC Error: $errMsg');
+            throw Exception('Odoo RPC Error: $errMsg${errData != null ? '\nData: $errData' : ''}');
           }
           return data['result'];
         }
@@ -515,6 +550,8 @@ Current error: $errorString''',
       if (kDebugMode) {
         debugPrint('[OdooApi] getServices calling jsonRpcUrl=${OdooConfig.jsonRpcUrl} domain=$domain');
       }
+      // Request services without custom x_appointment_type_id field (doesn't exist in this Odoo)
+      // Will match services to appointments by product_id link instead
       final records = await searchRead(
         model: OdooConfig.productTemplateModel,
         domain: domain,
@@ -528,7 +565,8 @@ Current error: $errorString''',
           'image_1920',
           'default_code',
           'product_variant_ids',
-          'appointment_type_id',
+          // NOTE: 'appointment_type_id' removed - doesn't exist on product.template in Odoo 19
+          // Appointment linking happens via appointment.type.product_id instead
           'x_studio_has_appointment',
           'x_studio_appointment_link',
         ],
@@ -558,7 +596,27 @@ Current error: $errorString''',
       final parsed = <OdooService>[];
       for (var record in records) {
         try {
-          parsed.add(OdooService.fromJson(record));
+          final service = OdooService.fromJson(record);
+          parsed.add(service);
+          
+          // 🔍 Service Type Detection Logging
+          if (kDebugMode) {
+            debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            debugPrint('📦 Service: ${service.name}');
+            debugPrint('   ID: ${service.id}');
+            debugPrint('   Type: ${record['type']}');
+            debugPrint('   Has Appointment: ${service.hasAppointment}');
+            debugPrint('   Appointment Type ID: ${service.appointmentTypeId}');
+            debugPrint('   Raw appointment_type_id: ${record['appointment_type_id']}');
+            debugPrint('   Raw x_studio_has_appointment: ${record['x_studio_has_appointment']}');
+            debugPrint('   ALL APPOINTMENT-RELATED FIELDS:');
+            record.forEach((key, value) {
+              if (key.toLowerCase().contains('appoint') || key.toLowerCase().contains('type')) {
+                debugPrint('      $key: $value');
+              }
+            });
+            debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          }
         } catch (e) {
           if (kDebugMode) debugPrint('[OdooApi] getServices parse failed for record id=${record['id']}: $e');
         }
@@ -571,7 +629,7 @@ Current error: $errorString''',
           domain: domain,
           fields: [
             'id', 'name', 'description', 'list_price', 'categ_id', 'public_categ_ids', 'image_1920', 'default_code', 'type',
-            'appointment_type_id', 'x_studio_has_appointment', 'x_studio_appointment_link'
+            'appointment_type_id', 'x_appointment_type_id', 'x_studio_has_appointment', 'x_studio_appointment_link'
           ],
         );
         final altParsed = <OdooService>[];
@@ -824,9 +882,9 @@ Current error: $errorString''',
         );
         debugPrint('[OdooApi] Total appointment types in Odoo: ${allRecords.length}');
         if (allRecords.isNotEmpty) {
-          allRecords.forEach((r) {
+          for (var r in allRecords) {
             debugPrint('[OdooApi] Appointment type: id=${r['id']}, name=${r['name']}, website_published=${r['website_published']}');
-          });
+          }
         }
       } catch (e) {
         debugPrint('[OdooApi] Could not fetch all appointment types: $e');
@@ -1087,10 +1145,10 @@ Current error: $errorString''',
       
       if (restrictToUserIds != null && staffId != null) {
         // restrictToUserIds can be List<int> or List<dynamic> with [id, name] pairs or false
-        if (restrictToUserIds == false || restrictToUserIds is! List || (restrictToUserIds as List).isEmpty) {
+        if (restrictToUserIds == false || restrictToUserIds is! List || (restrictToUserIds).isEmpty) {
           // No restrictions - available to all consultants
           debugPrint('[OdooApi]   ✓ No restrictions - available to all');
-        } else if (restrictToUserIds is List && restrictToUserIds.isNotEmpty) {
+        } else if (restrictToUserIds.isNotEmpty) {
           // Check if staffId is in the list
           consultantMatches = false;
           for (var userId in restrictToUserIds) {
@@ -1341,8 +1399,15 @@ Current error: $errorString''',
       debugPrint('[OdooApi]   Customer: $customerName <$customerEmail>');
       if (productId != null) debugPrint('[OdooApi]   Product ID: $productId, Price: $price');
       
-      // Format datetime for Odoo (ISO 8601 format)
-      final dateTimeStr = dateTime.toUtc().toIso8601String();
+      // Format datetime for Odoo 19 (requires YYYY-MM-DD HH:MM:SS format, no 'T' or 'Z')
+      // Odoo 19 expects: '2025-12-15 02:30:00' NOT '2025-12-15T02:30:00.000Z'
+      final utcDateTime = dateTime.toUtc();
+      final dateTimeStr = '${utcDateTime.year.toString().padLeft(4, '0')}-'
+          '${utcDateTime.month.toString().padLeft(2, '0')}-'
+          '${utcDateTime.day.toString().padLeft(2, '0')} '
+          '${utcDateTime.hour.toString().padLeft(2, '0')}:'
+          '${utcDateTime.minute.toString().padLeft(2, '0')}:'
+          '${utcDateTime.second.toString().padLeft(2, '0')}';
       
       // Step 1: Find or create partner
       int? partnerId;
@@ -1438,17 +1503,961 @@ Current error: $errorString''',
         }
       }
 
-      // Step 3: Return success (skipping failing calendar/appointment RPCs)
+      // Step 3: Create calendar.event - THIS IS CRITICAL FOR APPOINTMENTS TO SHOW!
+      int? calendarEventId;
+      if (partnerId != null) {
+        try {
+          debugPrint('[OdooApi] 📅 Creating calendar.event for appointment...');
+          debugPrint('[OdooApi]    appointment_type_id: $appointmentTypeId');
+          debugPrint('[OdooApi]    user_id (staff): $staffId');
+          debugPrint('[OdooApi]    partner_ids: [[6, 0, [$partnerId]]]');
+          debugPrint('[OdooApi]    start: $dateTimeStr');
+          
+          // Calculate end time (15 minutes by default)
+          final endDateTime = dateTime.add(const Duration(minutes: 15));
+          final utcEndDateTime = endDateTime.toUtc();
+          final endDateTimeStr = '${utcEndDateTime.year.toString().padLeft(4, '0')}-'
+              '${utcEndDateTime.month.toString().padLeft(2, '0')}-'
+              '${utcEndDateTime.day.toString().padLeft(2, '0')} '
+              '${utcEndDateTime.hour.toString().padLeft(2, '0')}:'
+              '${utcEndDateTime.minute.toString().padLeft(2, '0')}:'
+              '${utcEndDateTime.second.toString().padLeft(2, '0')}';
+          
+          // Fetch appointment type name for event title
+          String eventName = 'Appointment';
+          try {
+            final appointmentType = await searchRead(
+              model: 'appointment.type',
+              domain: [['id', '=', appointmentTypeId]],
+              fields: ['name'],
+              limit: 1,
+            );
+            if (appointmentType.isNotEmpty) {
+              eventName = appointmentType.first['name'] as String? ?? 'Appointment';
+            }
+          } catch (e) {
+            debugPrint('[OdooApi] Could not fetch appointment type name: $e');
+          }
+          
+          final eventData = {
+            'name': eventName,
+            'start': dateTimeStr,
+            'stop': endDateTimeStr,
+            'allday': false,
+            'duration': 0.25, // 15 minutes = 0.25 hours
+            
+            // CRITICAL FIELDS for Staff Bookings view
+            'appointment_type_id': appointmentTypeId,
+            'user_id': staffId,
+            'partner_ids': [[6, 0, [partnerId]]],
+            
+            // Location and video call
+            'location': 'Online',
+            'videocall_location': 'odoo_discuss',
+            
+            // Description
+            'description': '''Appointment Booking
+Customer: $customerName
+Email: $customerEmail
+${customerPhone != null ? 'Phone: $customerPhone' : ''}
+${saleOrderId != null ? 'Sales Order: SO$saleOrderId' : ''}
+${notes != null && notes.isNotEmpty ? '\nNotes: $notes' : ''}''',
+            
+            // Additional fields
+            'privacy': 'public',
+            'show_as': 'busy',
+            'active': true,
+          };
+          
+          debugPrint('[OdooApi] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          debugPrint('[OdooApi] 📤 SENDING TO ODOO:');
+          debugPrint('[OdooApi] Model: calendar.event');
+          debugPrint('[OdooApi] Method: create');
+          debugPrint('[OdooApi] Event Data:');
+          eventData.forEach((key, value) {
+            debugPrint('[OdooApi]   $key: $value');
+          });
+          debugPrint('[OdooApi] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          
+          calendarEventId = await executeRpc(
+            model: 'calendar.event',
+            method: 'create',
+            args: [eventData],
+          );
+          
+          if (calendarEventId is int) {
+            debugPrint('[OdooApi] ✅✅✅ CALENDAR EVENT CREATED!');
+            debugPrint('[OdooApi]    Event ID: $calendarEventId');
+            debugPrint('[OdooApi]    Should now appear in:');
+            debugPrint('[OdooApi]       Appointments → Appointment Types → Staff Bookings');
+            debugPrint('[OdooApi]       Calendar → $eventName');
+            debugPrint('[OdooApi]    ⏸️  Email will be sent after order confirmation');
+          } else {
+            debugPrint('[OdooApi] ⚠️ Calendar event creation returned unexpected type: ${calendarEventId.runtimeType}');
+          }
+        } catch (e, stackTrace) {
+          debugPrint('[OdooApi] ❌❌❌ CALENDAR EVENT CREATION FAILED!');
+          debugPrint('[OdooApi]    Error: $e');
+          debugPrint('[OdooApi]    Stack: $stackTrace');
+          debugPrint('[OdooApi]    💡 This is why appointment doesn\'t show in Appointments module!');
+        }
+      } else {
+        debugPrint('[OdooApi] ❌ Cannot create calendar event - missing partnerId');
+      }
+
+      // Step 4: Return success with all IDs
       return {
         'success': true,
         if (saleOrderId != null) 'sale_order_id': saleOrderId,
+        if (calendarEventId != null && calendarEventId is int) 'calendar_event_id': calendarEventId,
         'partner_id': partnerId,
         'appointment_type_id': appointmentTypeId,
         'datetime': dateTimeStr,
       };
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('[OdooApi] ❌ createAppointmentBooking failed: $e');
+      debugPrint('[OdooApi] Stack: $stackTrace');
       return {'error': e.toString()};
+    }
+  }
+
+  /// Fetch product variants for a given product template
+  Future<List<OdooProductVariant>> getProductVariants(int productTemplateId) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('[OdooApi] Fetching variants for product template $productTemplateId');
+      }
+
+      final records = await searchRead(
+        model: OdooConfig.productModel, // product.product
+        domain: [['product_tmpl_id', '=', productTemplateId]],
+        fields: [
+          'id',
+          'name',
+          'display_name',
+          'list_price',
+          'lst_price',
+          'product_template_attribute_value_ids',
+        ],
+      );
+
+      if (kDebugMode) {
+        debugPrint('[OdooApi] Found ${records.length} variants');
+        if (records.isNotEmpty) {
+          debugPrint('[OdooApi] Sample variant: ${records.first}');
+        }
+      }
+
+      // Try to fetch attribute name from the first variant
+      String? attributeName;
+      if (records.isNotEmpty) {
+        final firstVariant = records.first;
+        if (firstVariant['product_template_attribute_value_ids'] is List) {
+          final attrIds = firstVariant['product_template_attribute_value_ids'] as List;
+          if (attrIds.isNotEmpty) {
+            try {
+              // Fetch the attribute value details to get the attribute name
+              final attrRecords = await searchRead(
+                model: 'product.template.attribute.value',
+                domain: [['id', 'in', attrIds]],
+                fields: ['id', 'name', 'attribute_id'],
+                limit: 1,
+              );
+              
+              if (attrRecords.isNotEmpty && attrRecords.first['attribute_id'] is List) {
+                final attrIdData = attrRecords.first['attribute_id'] as List;
+                if (attrIdData.length >= 2) {
+                  attributeName = attrIdData[1] as String; // [id, name] format
+                  if (kDebugMode) {
+                    debugPrint('[OdooApi] Found attribute name: $attributeName');
+                  }
+                }
+              }
+            } catch (e) {
+              debugPrint('[OdooApi] Could not fetch attribute name: $e');
+            }
+          }
+        }
+      }
+
+      // Parse variants with the attribute name
+      final variants = records.map((record) {
+        final variant = OdooProductVariant.fromJson(record);
+        // If we found an attribute name and the variant has 'Option' key, create new variant with correct key
+        if (attributeName != null && variant.attributes.containsKey('Option')) {
+          final value = variant.attributes['Option']!;
+          return OdooProductVariant(
+            id: variant.id,
+            name: variant.name,
+            price: variant.price,
+            displayName: variant.displayName,
+            attributes: {attributeName: value},
+          );
+        }
+        return variant;
+      }).toList();
+      
+      return variants;
+    } catch (e) {
+      debugPrint('[OdooApi] ❌ getProductVariants failed: $e');
+      return [];
+    }
+  }
+
+  /// Create a simple sales order for non-appointment services
+  Future<int?> createSimpleSalesOrder({
+    required int partnerId,
+    required int productId,
+    int quantity = 1,
+    String? notes,
+  }) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('[OdooApi] Creating sales order for partner $partnerId, product $productId');
+      }
+
+      final orderLines = [
+        {
+          'product_id': productId,
+          'product_uom_qty': quantity,
+          'price_unit': 0, // Let Odoo calculate from product
+        }
+      ];
+
+      final saleOrderId = await createSaleOrder(
+        partnerId: partnerId,
+        orderLines: orderLines,
+      );
+
+      if (kDebugMode) {
+        debugPrint('[OdooApi] ✅ Sales order created: $saleOrderId');
+      }
+
+      return saleOrderId;
+    } catch (e) {
+      debugPrint('[OdooApi] ❌ createSimpleSalesOrder failed: $e');
+      return null;
+    }
+  }
+
+  /// Create sales order from cart checkout
+  Future<Map<String, dynamic>> createSalesOrderFromCart({
+    required String customerName,
+    required String customerEmail,
+    required String customerPhone,
+    required String deliveryAddress,
+    required String city,
+    required String state,
+    required String pincode,
+    required List<Map<String, dynamic>> cartItems, // [{productId, productName, quantity, price}]
+    required String paymentMethod,
+    String? notes,
+  }) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('[OdooApi] 🛒 Creating sales order from cart');
+        debugPrint('[OdooApi] Customer: $customerName ($customerEmail)');
+        debugPrint('[OdooApi] Items: ${cartItems.length}');
+      }
+
+      // Step 1: Find or create customer partner
+      int? partnerId;
+      try {
+        if (kDebugMode) {
+          debugPrint('[OdooApi] 📧 Searching for partner with email: $customerEmail');
+          debugPrint('[OdooApi] 👤 Customer name to use: $customerName');
+        }
+        
+        // Only search if email is valid and not empty
+        if (customerEmail.isEmpty || !customerEmail.contains('@')) {
+          if (kDebugMode) {
+            debugPrint('[OdooApi] ⚠️ Invalid email, will create partner with phone');
+          }
+          throw Exception('Invalid email address for partner search');
+        }
+        
+        final partners = await searchRead(
+          model: 'res.partner',
+          domain: [['email', '=', customerEmail]],
+          fields: ['id', 'name', 'email', 'is_company'],
+          limit: 1,
+        );
+        
+        if (partners.isNotEmpty) {
+          final existingPartnerId = partners.first['id'] as int?;
+          final existingName = partners.first['name'] as String?;
+          final isCompany = partners.first['is_company'] as bool?;
+          
+          if (kDebugMode) {
+            debugPrint('[OdooApi] 🔍 Found existing partner: $existingPartnerId');
+            debugPrint('[OdooApi] Name: $existingName, Is Company: $isCompany');
+          }
+          
+          // If it's a company record or name doesn't match, update it
+          if (isCompany == true || existingName != customerName) {
+            if (kDebugMode) {
+              debugPrint('[OdooApi] 📝 Updating partner with correct customer data');
+            }
+            
+            try {
+              await executeRpc(
+                model: 'res.partner',
+                method: 'write',
+                args: [
+                  [existingPartnerId],
+                  {
+                    'name': customerName,
+                    'phone': customerPhone,
+                    'street': deliveryAddress,
+                    'city': city,
+                    'zip': pincode,
+                    'is_company': false,
+                  }
+                ],
+              );
+              
+              if (kDebugMode) {
+                debugPrint('[OdooApi] ✅ Partner updated successfully');
+              }
+            } catch (updateError) {
+              debugPrint('[OdooApi] ⚠️ Could not update partner: $updateError');
+            }
+          }
+          
+          partnerId = existingPartnerId;
+        } else {
+          // Create new partner
+          if (kDebugMode) {
+            debugPrint('[OdooApi] 🆕 Creating new partner');
+            debugPrint('[OdooApi] Name: $customerName');
+            debugPrint('[OdooApi] Email: $customerEmail');
+            debugPrint('[OdooApi] Phone: $customerPhone');
+          }
+          
+          final created = await executeRpc(
+            model: 'res.partner',
+            method: 'create',
+            args: [
+              {
+                'name': customerName,
+                'email': customerEmail,
+                'phone': customerPhone,
+                'street': deliveryAddress,
+                'city': city,
+                'state_id': false,
+                'zip': pincode,
+                'country_id': 104, // India
+                'is_company': false,
+              }
+            ],
+          );
+          
+          if (created is int) {
+            partnerId = created;
+            if (kDebugMode) {
+              debugPrint('[OdooApi] ✅ Created new partner: $partnerId');
+            }
+          } else {
+            if (kDebugMode) {
+              debugPrint('[OdooApi] ⚠️ Unexpected partner creation response: $created');
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[OdooApi] ❌ Partner creation failed: $e');
+        return {
+          'success': false,
+          'error': 'Failed to create customer record: $e',
+        };
+      }
+
+      if (partnerId == null) {
+        return {
+          'success': false,
+          'error': 'Failed to get or create customer partner',
+        };
+      }
+
+      // Step 2: Prepare order lines from cart items
+      List<Map<String, dynamic>> orderLines = [];
+      double totalAmount = 0.0;
+
+      for (var item in cartItems) {
+        final productId = item['productId'] as int?;
+        final productName = item['productName'] as String? ?? 'Product';
+        final quantity = item['quantity'] as int? ?? 1;
+        final price = item['price'] as double? ?? 0.0;
+
+        if (productId != null) {
+          orderLines.add({
+            'product_id': productId,
+            'product_uom_qty': quantity,
+            'price_unit': price,
+            'name': productName,
+          });
+          totalAmount += price * quantity;
+        }
+      }
+
+      if (orderLines.isEmpty) {
+        return {
+          'success': false,
+          'error': 'No valid products in cart',
+        };
+      }
+
+      // Step 3: Create the sales order
+      final orderLineData = orderLines.map((line) => [0, 0, line]).toList();
+      
+      // Build order note with payment and delivery info
+      final orderNote = '''
+Order Details:
+- Payment Method: $paymentMethod
+- Delivery Address: $deliveryAddress, $city, $state - $pincode
+- Phone: $customerPhone
+${notes != null ? '- Notes: $notes' : ''}
+''';
+
+      try {
+        final saleOrderId = await executeRpc(
+          model: OdooConfig.saleOrderModel,
+          method: 'create',
+          args: [
+            {
+              'partner_id': partnerId,
+              'order_line': orderLineData,
+              'note': orderNote,
+              'state': 'draft', // Start as draft
+            }
+          ],
+        );
+
+        if (saleOrderId is int) {
+          if (kDebugMode) {
+            debugPrint('[OdooApi] ✅ Sales Order created: SO$saleOrderId');
+            debugPrint('[OdooApi] Total Amount: ₹${totalAmount.toStringAsFixed(2)}');
+          }
+
+          // Try to confirm the order automatically
+          String orderStatus = 'draft';
+          try {
+            debugPrint('[OdooApi] 🔄 Confirming sales order SO$saleOrderId...');
+            final confirmResult = await executeRpc(
+              model: OdooConfig.saleOrderModel,
+              method: 'action_confirm',
+              args: [[saleOrderId]],
+            );
+            orderStatus = 'sale'; // Confirmed
+            debugPrint('[OdooApi] ✅✅✅ Sales Order CONFIRMED successfully!');
+            debugPrint('[OdooApi]    Status changed: draft → sale');
+            debugPrint('[OdooApi]    Result: $confirmResult');
+          } catch (e, stackTrace) {
+            debugPrint('[OdooApi] ❌❌❌ CRITICAL: Order confirmation FAILED!');
+            debugPrint('[OdooApi]    Error: $e');
+            debugPrint('[OdooApi]    Stack: $stackTrace');
+            debugPrint('[OdooApi]    ⚠️ Appointments may not be created because order is not confirmed!');
+            debugPrint('[OdooApi]    💡 Check Odoo logs for confirmation error details');
+          }
+
+          return {
+            'success': true,
+            'saleOrderId': saleOrderId,
+            'partnerId': partnerId,
+            'totalAmount': totalAmount,
+            'orderReference': 'SO$saleOrderId',
+            'orderStatus': orderStatus,
+          };
+        } else {
+          return {
+            'success': false,
+            'error': 'Invalid response from Odoo',
+          };
+        }
+      } catch (e) {
+        debugPrint('[OdooApi] ❌ Sales order creation failed: $e');
+        return {
+          'success': false,
+          'error': 'Failed to create sales order: $e',
+        };
+      }
+    } catch (e) {
+      debugPrint('[OdooApi] ❌ createSalesOrderFromCart failed: $e');
+      return {
+        'success': false,
+        'error': 'Unexpected error: $e',
+      };
+    }
+  }
+
+  /// Create appointment booking in Odoo Appointments module
+  /// This creates bookings that show in "Staff Bookings" for each appointment type
+  /// Emails are ONLY sent when orderStatus is 'sale' (confirmed), not 'draft' (quotation)
+  Future<Map<String, dynamic>> createAppointmentFromOrder({
+    required int partnerId,
+    required String customerName,
+    required String customerEmail,
+    required String customerPhone,
+    required int saleOrderId,
+    required String serviceName,
+    required DateTime appointmentDate,
+    int durationMinutes = 15,
+    String orderStatus = 'draft', // Order status - controls email sending
+  }) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('[OdooApi] 📅 Creating appointment booking for SO$saleOrderId');
+        debugPrint('[OdooApi] 👤 Customer: $customerName');
+        debugPrint('[OdooApi] 🎯 Service: $serviceName');
+        debugPrint('[OdooApi] 📆 Scheduled: $appointmentDate');
+      }
+
+      // Step 1: Find existing appointment type by matching service name
+      // Your Odoo already has these types configured
+      int? appointmentTypeId;
+      Map<String, dynamic>? appointmentType;
+      
+      try {
+        debugPrint('[OdooApi] 🔍 Searching for appointment type...');
+        debugPrint('[OdooApi]    Service name: "$serviceName"');
+        
+        // Search for appointment type - try exact match first
+        debugPrint('[OdooApi]    Trying exact match: name = "$serviceName"');
+        var existingTypes = await searchRead(
+          model: 'appointment.type',
+          domain: [['name', '=', serviceName]],
+          fields: ['id', 'name', 'staff_user_ids', 'appointment_duration'],
+        );
+        debugPrint('[OdooApi]    Exact match results: ${existingTypes.length} types found');
+
+        // If no exact match, try fuzzy search (e.g., "Manifestation Healing Booking" -> "Manifestation Healing")
+        if (existingTypes.isEmpty) {
+          final serviceKeyword = serviceName.replaceAll(' Booking', '').trim();
+          debugPrint('[OdooApi]    Trying fuzzy match: name ilike "$serviceKeyword"');
+          existingTypes = await searchRead(
+            model: 'appointment.type',
+            domain: [['name', 'ilike', serviceKeyword]],
+            fields: ['id', 'name', 'staff_user_ids', 'appointment_duration'],
+            limit: 1,
+          );
+          debugPrint('[OdooApi]    Fuzzy match results: ${existingTypes.length} types found');
+        }
+
+        if (existingTypes.isNotEmpty) {
+          appointmentType = existingTypes.first as Map<String, dynamic>;
+          appointmentTypeId = appointmentType['id'] as int;
+          
+          debugPrint('[OdooApi] ✅✅✅ FOUND APPOINTMENT TYPE!');
+          debugPrint('[OdooApi]    ID: $appointmentTypeId');
+          debugPrint('[OdooApi]    Name: ${appointmentType['name']}');
+          debugPrint('[OdooApi]    Staff IDs: ${appointmentType['staff_user_ids']}');
+          debugPrint('[OdooApi]    Duration: ${appointmentType['appointment_duration']}');
+        } else {
+          debugPrint('[OdooApi] ❌❌❌ NO APPOINTMENT TYPE FOUND!');
+          debugPrint('[OdooApi]    Searched for: "$serviceName"');
+          debugPrint('[OdooApi]    💡 ACTION REQUIRED:');
+          debugPrint('[OdooApi]       1. Go to Odoo → Appointments');
+          debugPrint('[OdooApi]       2. Create appointment type named exactly: "$serviceName"');
+          debugPrint('[OdooApi]       3. Configure staff and communication settings');
+        }
+      } catch (e, stackTrace) {
+        debugPrint('[OdooApi] ❌ Error searching appointment type: $e');
+        debugPrint('[OdooApi] Stack: $stackTrace');
+      }
+
+      // Step 2: Get staff/consultant user from appointment type or default
+      int? staffUserId;
+      int? staffPartnerId; // NEW: Get consultant's partner_id for attendees
+      
+      try {
+        // Try to get staff from appointment type first
+        if (appointmentType != null && appointmentType['staff_user_ids'] != null) {
+          final staffIds = appointmentType['staff_user_ids'] as List;
+          if (staffIds.isNotEmpty) {
+            // Get first staff member from appointment type
+            if (staffIds[0] is List) {
+              staffUserId = (staffIds[0] as List).last as int;
+            } else {
+              staffUserId = staffIds[0] as int;
+            }
+            
+            if (kDebugMode) {
+              debugPrint('[OdooApi] 👨‍💼 Using staff from appointment type: User ID $staffUserId');
+            }
+          }
+        }
+
+        // Fallback to admin if no staff assigned to appointment type
+        if (staffUserId == null) {
+          final users = await searchRead(
+            model: 'res.users',
+            domain: [['login', '=', 'admin']],
+            fields: ['id', 'name', 'partner_id'],
+          );
+          
+          if (users.isNotEmpty) {
+            staffUserId = users.first['id'] as int;
+            if (kDebugMode) {
+              debugPrint('[OdooApi] 👨‍💼 Using default admin user: ${users.first['name']}');
+            }
+          }
+        }
+        
+        // NEW: Get consultant's partner_id so they receive emails too
+        if (staffUserId != null) {
+          debugPrint('[OdooApi] 🔍 Fetching consultant partner_id for user: $staffUserId');
+          
+          final staffUser = await searchRead(
+            model: 'res.users',
+            domain: [['id', '=', staffUserId]],
+            fields: ['id', 'name', 'partner_id', 'email'],
+          );
+          
+          debugPrint('[OdooApi] 📊 Staff user search result: $staffUser');
+          
+          if (staffUser.isNotEmpty) {
+            final partnerData = staffUser.first['partner_id'];
+            debugPrint('[OdooApi] 📊 partner_id raw data: $partnerData (type: ${partnerData.runtimeType})');
+            
+            // Handle different formats of partner_id response
+            if (partnerData is List && partnerData.isNotEmpty) {
+              // Format: [id, "name"]
+              staffPartnerId = partnerData[0] as int;
+              final staffName = partnerData.length > 1 ? partnerData[1] as String : 'Unknown';
+              final staffEmail = staffUser.first['email'] as String?;
+              
+              if (kDebugMode) {
+                debugPrint('[OdooApi] ✅ Consultant details fetched:');
+                debugPrint('[OdooApi]    User ID: $staffUserId');
+                debugPrint('[OdooApi]    Partner ID: $staffPartnerId');
+                debugPrint('[OdooApi]    Name: $staffName');
+                debugPrint('[OdooApi]    Email: $staffEmail');
+                debugPrint('[OdooApi]    Will be added as attendee to receive meeting link');
+              }
+            } else if (partnerData is int) {
+              // Format: just an integer
+              staffPartnerId = partnerData;
+              debugPrint('[OdooApi] ✅ Consultant Partner ID (int format): $staffPartnerId');
+            } else if (partnerData == false || partnerData == null) {
+              debugPrint('[OdooApi] ⚠️ Consultant has no partner_id (value: $partnerData)');
+            } else {
+              debugPrint('[OdooApi] ⚠️ Unexpected partner_id format: $partnerData');
+            }
+          } else {
+            debugPrint('[OdooApi] ⚠️ No staff user found with ID: $staffUserId');
+          }
+        }
+      } catch (e, stackTrace) {
+        debugPrint('[OdooApi] ⚠️ Error finding staff user: $e');
+        debugPrint('[OdooApi] Stack trace: $stackTrace');
+      }
+
+      // Step 3: Calculate end time and format for Odoo 19
+      final endDate = appointmentDate.add(Duration(minutes: durationMinutes));
+      
+      // Format datetimes for Odoo 19 (YYYY-MM-DD HH:MM:SS without 'T' or 'Z')
+      final utcStart = appointmentDate.toUtc();
+      final startStr = '${utcStart.year.toString().padLeft(4, '0')}-'
+          '${utcStart.month.toString().padLeft(2, '0')}-'
+          '${utcStart.day.toString().padLeft(2, '0')} '
+          '${utcStart.hour.toString().padLeft(2, '0')}:'
+          '${utcStart.minute.toString().padLeft(2, '0')}:'
+          '${utcStart.second.toString().padLeft(2, '0')}';
+      
+      final utcEnd = endDate.toUtc();
+      final endStr = '${utcEnd.year.toString().padLeft(4, '0')}-'
+          '${utcEnd.month.toString().padLeft(2, '0')}-'
+          '${utcEnd.day.toString().padLeft(2, '0')} '
+          '${utcEnd.hour.toString().padLeft(2, '0')}:'
+          '${utcEnd.minute.toString().padLeft(2, '0')}:'
+          '${utcEnd.second.toString().padLeft(2, '0')}';
+
+      // Step 4: Create calendar event with proper appointment booking structure
+      // Build attendees list: BOTH customer AND consultant
+      final List<int> attendeePartnerIds = [partnerId]; // Start with customer
+      
+      debugPrint('[OdooApi] 👥 Building attendees list...');
+      debugPrint('[OdooApi]    Customer Partner ID: $partnerId (added)');
+      
+      if (staffPartnerId != null) {
+        attendeePartnerIds.add(staffPartnerId); // Add consultant
+        debugPrint('[OdooApi]    Consultant Partner ID: $staffPartnerId (added)');
+      } else {
+        debugPrint('[OdooApi]    ⚠️ No consultant partner_id - only customer will be attendee');
+      }
+      
+      debugPrint('[OdooApi]    Final attendee list: $attendeePartnerIds (${attendeePartnerIds.length} attendees)');
+      
+      final eventData = {
+        'name': serviceName, // Use service name directly
+        'start': startStr,
+        'stop': endStr,
+        'allday': false,
+        'duration': durationMinutes / 60.0,
+        
+        // Link to appointment type - CRITICAL for showing in Staff Bookings
+        if (appointmentTypeId != null) 'appointment_type_id': appointmentTypeId,
+        
+        // Assign to staff user
+        if (staffUserId != null) 'user_id': staffUserId,
+        
+        // ATTENDEES: Both customer AND consultant - they will BOTH get emails
+        'partner_ids': [[6, 0, attendeePartnerIds]],
+        
+        // Location and video call settings
+        'location': 'Online',
+        'videocall_location': 'odoo_discuss', // Use Odoo's built-in video
+        
+        // Booking details in description
+        'description': '''Appointment Booking
+--------------------------------
+Customer: $customerName
+Email: $customerEmail  
+Phone: $customerPhone
+Service: $serviceName
+Duration: $durationMinutes minutes
+Sales Order: SO$saleOrderId
+--------------------------------
+
+This is an online consultation.
+Video call link will be available before the appointment.
+''',
+        
+        // Additional fields for proper integration
+        'privacy': 'public',
+        'show_as': 'busy',
+        'active': true,
+      };
+
+      debugPrint('[OdooApi] 📝 Creating calendar.event record...');
+      debugPrint('[OdooApi]    Model: calendar.event');
+      debugPrint('[OdooApi]    Method: create');
+      debugPrint('[OdooApi]    Fields: ${eventData.keys.join(', ')}');
+      debugPrint('[OdooApi]    appointment_type_id: $appointmentTypeId');
+      debugPrint('[OdooApi]    user_id (staff): $staffUserId');
+      debugPrint('[OdooApi] ');
+      debugPrint('[OdooApi] 👥 👥 👥 ATTENDEES CONFIGURATION 👥 👥 👥');
+      debugPrint('[OdooApi]    Customer Partner ID: $partnerId');
+      if (staffPartnerId != null) {
+        debugPrint('[OdooApi]    Consultant Partner ID: $staffPartnerId');
+        debugPrint('[OdooApi]    Total attendees: 2 (Customer + Consultant)');
+      } else {
+        debugPrint('[OdooApi]    ⚠️ WARNING: Only 1 attendee (Customer only)');
+        debugPrint('[OdooApi]    ⚠️ Consultant will NOT receive email notification');
+      }
+      debugPrint('[OdooApi]    partner_ids value: [[6, 0, $attendeePartnerIds]]');
+      debugPrint('[OdooApi]    Actual list being sent: $attendeePartnerIds');
+      debugPrint('[OdooApi] ');
+      debugPrint('[OdooApi]    videocall_location: odoo_discuss');
+      
+      debugPrint('[OdooApi] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      debugPrint('[OdooApi] 📤 SENDING TO ODOO:');
+      debugPrint('[OdooApi] Model: calendar.event');
+      debugPrint('[OdooApi] Method: create');
+      debugPrint('[OdooApi] Event Data:');
+      eventData.forEach((key, value) {
+        debugPrint('[OdooApi]   $key: $value');
+      });
+      debugPrint('[OdooApi] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      final appointmentId = await executeRpc(
+        model: 'calendar.event',
+        method: 'create',
+        args: [eventData],
+      );
+
+      debugPrint('[OdooApi] Response from create: $appointmentId (type: ${appointmentId.runtimeType})');
+
+      if (appointmentId is int) {
+        debugPrint('[OdooApi] ✅✅✅ CALENDAR EVENT CREATED SUCCESSFULLY!');
+        debugPrint('[OdooApi]    Appointment ID: $appointmentId');
+        debugPrint('[OdooApi]    Should now be visible in:');
+        debugPrint('[OdooApi]       Appointments → Appointment Types → Staff Bookings');
+        debugPrint('[OdooApi]       Filter: Appointment = ${appointmentType?['name']}');
+
+        // IMPORTANT: Only send emails when order is confirmed (status = 'sale')
+        // NOT when it's just a quotation (status = 'draft')
+        if (orderStatus == 'sale') {
+          debugPrint('[OdooApi] ✅ Order is CONFIRMED - sending invitation emails...');
+          
+          // Step 5: Send invitation email to BOTH customer AND consultant
+          try {
+            // Send to customer
+            await executeRpc(
+              model: 'calendar.event',
+              method: 'action_sendmail',
+              args: [[appointmentId]],
+            );
+            
+            if (kDebugMode) {
+              debugPrint('[OdooApi] 📧 ✅ Invitation email sent to:');
+              debugPrint('[OdooApi]    👤 Customer: $customerEmail');
+              debugPrint('[OdooApi]    👨‍💼 Consultant: (via Odoo attendees)');
+              debugPrint('[OdooApi]    📅 Meeting link included in email');
+            }
+          } catch (e) {
+            debugPrint('[OdooApi] ⚠️ Could not send invitation email: $e');
+            // Non-critical, continue
+          }
+        } else {
+          debugPrint('[OdooApi] ⏸️  Order status is \'$orderStatus\' (not \'sale\')');
+          debugPrint('[OdooApi]    📧 Emails will be sent ONLY after order confirmation');
+          debugPrint('[OdooApi]    💡 Admin must confirm the quotation in Odoo first');
+        }
+
+        // Step 6: Update sales order with appointment reference
+        try {
+          await executeRpc(
+            model: 'sale.order',
+            method: 'write',
+            args: [
+              [saleOrderId],
+              {
+                'note': 'Appointment ID: $appointmentId\nScheduled: ${appointmentDate.toString()}',
+              }
+            ],
+          );
+        } catch (e) {
+          debugPrint('[OdooApi] ⚠️ Could not update sales order: $e');
+        }
+
+        return {
+          'success': true,
+          'appointmentId': appointmentId,
+          'appointmentTypeId': appointmentTypeId,
+          'staffUserId': staffUserId,
+        };
+      } else {
+        if (kDebugMode) {
+          debugPrint('[OdooApi] ⚠️ Unexpected appointment response: $appointmentId');
+        }
+        return {
+          'success': false,
+          'error': 'Invalid response from Odoo appointments',
+        };
+      }
+    } catch (e, stackTrace) {
+      debugPrint('[OdooApi] ❌ Appointment creation failed: $e');
+      debugPrint('[OdooApi] Stack trace: $stackTrace');
+      return {
+        'success': false,
+        'error': 'Failed to create appointment: $e',
+      };
+    }
+  }
+
+  /// Get list of available consultants/staff members
+  Future<List<Map<String, dynamic>>> getConsultants() async {
+    try {
+      final users = await searchRead(
+        model: 'res.users',
+        domain: [
+          ['active', '=', true],
+          ['share', '=', false], // Internal users only, not portal users
+        ],
+        fields: ['id', 'name', 'email', 'image_128'],
+      );
+
+      return users.map((user) => user as Map<String, dynamic>).toList();
+    } catch (e) {
+      debugPrint('[OdooApi] ❌ Failed to fetch consultants: $e');
+      return [];
+    }
+  }
+
+  /// Update appointment status (used when consultant completes appointment)
+  Future<bool> updateAppointmentStatus({
+    required int appointmentId,
+    required String status, // 'open', 'done', 'cancelled'
+  }) async {
+    try {
+      await executeRpc(
+        model: 'calendar.event',
+        method: 'write',
+        args: [
+          [appointmentId],
+          {'state': status}
+        ],
+      );
+
+      if (kDebugMode) {
+        debugPrint('[OdooApi] ✅ Appointment $appointmentId status updated to: $status');
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('[OdooApi] ❌ Failed to update appointment status: $e');
+      return false;
+    }
+  }
+
+  /// Get user's appointments from Odoo calendar events
+  Future<List<Map<String, dynamic>>> getUserAppointments({
+    required String customerEmail,
+  }) async {
+    try {
+      debugPrint('[OdooApi] 📅 Fetching appointments for: $customerEmail');
+      
+      // First, find the partner ID for this customer
+      final partners = await searchRead(
+        model: 'res.partner',
+        domain: [['email', '=', customerEmail]],
+        fields: ['id', 'name'],
+        limit: 1,
+      );
+
+      if (partners.isEmpty) {
+        debugPrint('[OdooApi] No partner found for email: $customerEmail');
+        return [];
+      }
+
+      final partnerId = partners.first['id'] as int;
+      debugPrint('[OdooApi] Found partner ID: $partnerId');
+
+      // Fetch calendar events for this partner
+      final events = await searchRead(
+        model: 'calendar.event',
+        domain: [
+          ['partner_ids', 'in', partnerId],
+        ],
+        fields: [
+          'id',
+          'name',
+          'start',
+          'stop',
+          'duration',
+          'partner_ids',
+          'user_id',
+          'description',
+          'location',
+          'appointment_type_id',
+        ],
+        order: 'start desc',
+      );
+
+      debugPrint('[OdooApi] Found ${events.length} appointments');
+
+      // Transform events to include more details
+      final List<Map<String, dynamic>> appointments = [];
+      for (var event in events) {
+        final appointment = Map<String, dynamic>.from(event);
+        
+        // Get consultant name from user_id
+        if (event['user_id'] is List && (event['user_id'] as List).length > 1) {
+          appointment['consultantName'] = (event['user_id'] as List)[1];
+        }
+
+        // Get appointment type name
+        if (event['appointment_type_id'] is List && (event['appointment_type_id'] as List).length > 1) {
+          appointment['appointmentTypeName'] = (event['appointment_type_id'] as List)[1];
+        }
+
+        appointments.add(appointment);
+      }
+
+      return appointments;
+    } catch (e) {
+      debugPrint('[OdooApi] ❌ Error fetching user appointments: $e');
+      return [];
     }
   }
 }

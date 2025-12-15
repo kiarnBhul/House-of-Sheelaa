@@ -15,6 +15,7 @@ import 'package:house_of_sheelaa/features/policies/privacy_policy_screen.dart';
 import 'package:house_of_sheelaa/features/policies/refund_policy_screen.dart';
 import 'package:house_of_sheelaa/features/policies/shipping_policy_screen.dart';
 import 'package:house_of_sheelaa/features/events/events_screen.dart';
+import 'package:house_of_sheelaa/features/services/odoo_diagnostic_screen.dart';
 
 // Improved, modern and cleaner HomeScreen design.
 // - Replaced external carousel dependency with native PageView
@@ -2206,7 +2207,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       subtitle: 'Consultant bookings',
                       onTap: () {
                         Navigator.pop(context);
-                        // Navigate to appointments screen
+                        Navigator.pushNamed(context, '/my_appointments');
                       },
                     ),
                     _buildDrawerItem(
@@ -2264,6 +2265,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (context) => const ShippingPolicyScreen()),
+                        );
+                      },
+                    ),
+                    _buildDrawerItem(
+                      context,
+                      icon: Icons.bug_report_rounded,
+                      title: 'Odoo Diagnostic',
+                      subtitle: 'Check appointment configuration',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const OdooDiagnosticScreen(),
+                          ),
                         );
                       },
                     ),

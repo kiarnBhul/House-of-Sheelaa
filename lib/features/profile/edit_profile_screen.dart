@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:house_of_sheelaa/theme/brand_theme.dart';
 import 'package:house_of_sheelaa/features/auth/state/auth_state.dart';
+import 'package:house_of_sheelaa/core/constants/countries_states.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -16,6 +17,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final lastNameCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
+  final streetCtrl = TextEditingController();
+  final cityCtrl = TextEditingController();
+  final pincodeCtrl = TextEditingController();
+  String? selectedCountry;
+  String? selectedState;
   DateTime? dob;
   final options = const [
     'Numerology',
@@ -26,17 +32,38 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     'Specials',
   ];
   final selected = <String>[];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    _loadProfileData();
+  }
+
+  Future<void> _loadProfileData() async {
     final auth = context.read<AuthState>();
-    firstNameCtrl.text = auth.firstName ?? '';
-    lastNameCtrl.text = auth.lastName ?? '';
-    emailCtrl.text = auth.email ?? '';
-    phoneCtrl.text = auth.phone ?? '';
-    dob = auth.dob;
-    selected.addAll(auth.interests);
+    
+    // Reload user data from Firestore to ensure we have latest
+    await auth.reloadUserData();
+    
+    if (!mounted) return;
+    
+    // Populate form fields
+    setState(() {
+      firstNameCtrl.text = auth.firstName ?? '';
+      lastNameCtrl.text = auth.lastName ?? '';
+      emailCtrl.text = auth.email ?? '';
+      phoneCtrl.text = auth.phone ?? '';
+      streetCtrl.text = auth.street ?? '';
+      cityCtrl.text = auth.city ?? '';
+      selectedCountry = auth.country ?? 'India';
+      selectedState = auth.state;
+      pincodeCtrl.text = auth.pincode ?? '';
+      dob = auth.dob;
+      selected.clear();
+      selected.addAll(auth.interests);
+      _isLoading = false;
+    });
   }
 
   @override
@@ -45,6 +72,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     lastNameCtrl.dispose();
     emailCtrl.dispose();
     phoneCtrl.dispose();
+    streetCtrl.dispose();
+    cityCtrl.dispose();
+    pincodeCtrl.dispose();
     super.dispose();
   }
 
@@ -115,6 +145,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       phone: phoneCtrl.text.trim(),
       dob: dob!,
       interests: selected,
+      street: streetCtrl.text.trim().isEmpty ? null : streetCtrl.text.trim(),
+      city: cityCtrl.text.trim().isEmpty ? null : cityCtrl.text.trim(),
+      state: selectedState,
+      pincode: pincodeCtrl.text.trim().isEmpty ? null : pincodeCtrl.text.trim(),
+      country: selectedCountry ?? 'India',
     );
     if (!mounted) return;
     if (ok) Navigator.of(context).pop();
@@ -124,6 +159,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final auth = context.watch<AuthState>();
+    
+    if (_isLoading) {
+      return Scaffold(
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                cs.primary.withValues(alpha: .75),
+                cs.secondary.withValues(alpha: .75),
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
+          child: const Center(
+            child: CircularProgressIndicator(
+              color: BrandColors.ecstasy,
+            ),
+          ),
+        ),
+      );
+    }
+    
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -149,7 +207,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
           Positioned.fill(
             child: SafeArea(
-              child: Padding(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,7 +224,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                       ],
                     ),
-                    const Spacer(),
+                    const SizedBox(height: 24),
                     Container(
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
@@ -354,6 +412,184 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 }
                                 return null;
                               },
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              'Delivery Address',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                color: BrandColors.ecstasy,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: streetCtrl,
+                              maxLines: 2,
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: BrandColors.alabaster,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'Street Address',
+                                hintText: 'Enter your street address',
+                                labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: BrandColors.alabaster.withValues(alpha: 0.85),
+                                ),
+                                filled: true,
+                                fillColor: BrandColors.alabaster.withValues(alpha: 0.08),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: BrandColors.alabaster.withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: const BorderSide(
+                                    color: BrandColors.ecstasy,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: cityCtrl,
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: BrandColors.alabaster,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'City',
+                                labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: BrandColors.alabaster.withValues(alpha: 0.85),
+                                ),
+                                filled: true,
+                                fillColor: BrandColors.alabaster.withValues(alpha: 0.08),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: BrandColors.alabaster.withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: const BorderSide(
+                                    color: BrandColors.ecstasy,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            DropdownButtonFormField<String>(
+                              value: selectedCountry,
+                              dropdownColor: BrandColors.jacaranda,
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: BrandColors.alabaster,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'Country',
+                                labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: BrandColors.alabaster.withValues(alpha: 0.85),
+                                ),
+                                filled: true,
+                                fillColor: BrandColors.alabaster.withValues(alpha: 0.08),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: BrandColors.alabaster.withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: const BorderSide(
+                                    color: BrandColors.ecstasy,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              items: CountryStateData.getCountries().map((country) {
+                                return DropdownMenuItem(
+                                  value: country,
+                                  child: Text(country),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                setState(() {
+                                  selectedCountry = value;
+                                  selectedState = null; // Reset state when country changes
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            DropdownButtonFormField<String>(
+                              value: selectedState,
+                              dropdownColor: BrandColors.jacaranda,
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: BrandColors.alabaster,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'State',
+                                labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: BrandColors.alabaster.withValues(alpha: 0.85),
+                                ),
+                                filled: true,
+                                fillColor: BrandColors.alabaster.withValues(alpha: 0.08),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: BrandColors.alabaster.withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: const BorderSide(
+                                    color: BrandColors.ecstasy,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              items: selectedCountry == null 
+                                ? []
+                                : CountryStateData.getStates(selectedCountry!).map((state) {
+                                  return DropdownMenuItem(
+                                    value: state,
+                                    child: Text(state),
+                                  );
+                                }).toList(),
+                              onChanged: (value) {
+                                setState(() {
+                                  selectedState = value;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: pincodeCtrl,
+                              keyboardType: TextInputType.number,
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: BrandColors.alabaster,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'Pincode',
+                                labelStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: BrandColors.alabaster.withValues(alpha: 0.85),
+                                ),
+                                filled: true,
+                                fillColor: BrandColors.alabaster.withValues(alpha: 0.08),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: BrandColors.alabaster.withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: const BorderSide(
+                                    color: BrandColors.ecstasy,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 16),
                             InkWell(

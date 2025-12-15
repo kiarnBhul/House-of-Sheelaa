@@ -86,24 +86,27 @@ class ServiceDetailScreen extends StatelessWidget {
         for (var apt in odooState.appointmentTypes) {
           if (apt.productId != null) {
             appointmentMap[apt.productId!] = apt;
+            debugPrint('[ServiceDetail] 📅 Mapped: Product ID ${apt.productId} → Appointment "${apt.name}" (ID: ${apt.id})');
           }
         }
+        debugPrint('[ServiceDetail] 🗺️ Total appointment mappings: ${appointmentMap.length}');
+        debugPrint('[ServiceDetail] 🗺️ Mapped product IDs: ${appointmentMap.keys.toList()}');
 
         final built = <Map<String, dynamic>>[];
 
         if (services.isNotEmpty) {
           for (var s in services) {
-            // Check if this service has an appointment type linked
-            final hasAppt = appointmentMap.containsKey(s.id);
-            final apptType = appointmentMap[s.id];
-
-            // Healing category override: force appointment flow even if metadata is missing
-            final bool forceHealingAppointment = (cat.name.toLowerCase() == 'healing');
+            // CRITICAL: Check if THIS SPECIFIC service ID is mapped to an appointment
+            final apptType = appointmentMap[s.id];  // null if no mapping exists
+            final hasAppt = apptType != null;
+            
+            debugPrint('[ServiceDetail] 🔍 Checking service "${s.name}" (ID: ${s.id}): hasAppt=$hasAppt, appointmentType=${apptType?.name}');
 
             if (s.subServices != null && s.subServices!.isNotEmpty) {
               // Only use subServices if they exist - don't duplicate the parent
               for (var ss in s.subServices!) {
-                final resolvedAppointmentId = ss.appointmentId ?? apptType?.id ?? s.appointmentTypeId;
+                // Use appointment ONLY if parent service is mapped to it
+                final resolvedAppointmentId = hasAppt ? apptType.id : (ss.appointmentId ?? s.appointmentTypeId);
                 built.add({
                   'type': 'service',
                   'id': ss.id,
@@ -112,16 +115,15 @@ class ServiceDetailScreen extends StatelessWidget {
                   'price': ss.price ?? s.price,
                   'durationMin': ss.durationMinutes ??
                       (apptType?.duration != null ? (apptType!.duration! * 60).round() : null),
-                  'hasAppointment': forceHealingAppointment || ss.hasAppointment || hasAppt,
-                    'appointmentId': forceHealingAppointment
-                      ? (resolvedAppointmentId ?? (appointmentMap.values.isNotEmpty ? appointmentMap.values.first.id : null))
-                      : resolvedAppointmentId,
+                  'hasAppointment': hasAppt || ss.hasAppointment,  // ONLY true if mapped OR service says so
+                  'appointmentId': resolvedAppointmentId,
                   'appointmentLink': ss.appointmentLink ?? apptType?.websiteUrl ?? s.appointmentLink,
                 });
               }
             } else {
               // Only add parent if no subServices exist
-              final resolvedAppointmentId = apptType?.id ?? s.appointmentTypeId;
+              // Use appointment ONLY if this service is mapped to it
+              final resolvedAppointmentId = hasAppt ? apptType.id : s.appointmentTypeId;
               built.add({
                 'type': 'service',
                 'id': s.id,
@@ -129,10 +131,8 @@ class ServiceDetailScreen extends StatelessWidget {
                 'image': s.imageUrl ?? 'assets/images/background.jpg',
                 'price': s.price,
                 'durationMin': apptType?.duration != null ? (apptType!.duration! * 60).round() : null,
-                'hasAppointment': forceHealingAppointment || s.hasAppointment || hasAppt,
-                'appointmentId': forceHealingAppointment
-                  ? (resolvedAppointmentId ?? (appointmentMap.values.isNotEmpty ? appointmentMap.values.first.id : null))
-                  : resolvedAppointmentId,
+                'hasAppointment': hasAppt || s.hasAppointment,  // ONLY true if mapped OR service says so
+                'appointmentId': resolvedAppointmentId,
                 'appointmentLink': apptType?.websiteUrl ?? s.appointmentLink,
               });
             }
@@ -140,23 +140,34 @@ class ServiceDetailScreen extends StatelessWidget {
         } else {
           // Fallback: some Odoo setups return services as product templates/products with type='service'.
           // Use products list filtered by type == 'service' if services list is empty.
+          debugPrint('[ServiceDetail] ⚠️ Services list empty, using products fallback');
           final fallback = odooState.products.where((p) {
             final byPublic = p.publicCategoryIds != null && p.publicCategoryIds!.contains(cid);
             final byInternal = p.categoryId != null && p.categoryId == cid;
             final isService = (p.type ?? '') == 'service';
             return (byPublic || byInternal) && isService;
           }).toList();
+          
           for (var p in fallback) {
+            // CRITICAL: Check if this product is mapped to an appointment type
+            final apptType = appointmentMap[p.id];
+            final hasAppt = apptType != null;
+            
+            debugPrint('[ServiceDetail] 🔍 Fallback product "${p.name}" (ID: ${p.id}): hasAppt=$hasAppt, appointmentType=${apptType?.name}');
+            
             built.add({
               'type': 'service',
               'id': p.id,
               'name': p.name,
               'image': p.imageUrl ?? 'assets/images/background.jpg',
               'price': p.price,
-              'durationMin': null,
+              'durationMin': apptType?.duration != null ? (apptType!.duration! * 60).round() : null,
+              'hasAppointment': hasAppt,  // CRITICAL FIX: Set based on appointment mapping
+              'appointmentId': hasAppt ? apptType.id : null,  // CRITICAL FIX: Only set if mapped
+              'appointmentLink': apptType?.websiteUrl,
             });
           }
-                debugPrint('[ServiceDetail] services empty — used products fallback count=${fallback.length}');
+          debugPrint('[ServiceDetail] services empty — used products fallback count=${fallback.length}');
           // If both services and product fallback are empty, trigger a background refresh
           if (built.isEmpty) {
             debugPrint('[ServiceDetail] no matches for category id=$cid, requesting refresh…');
@@ -681,18 +692,31 @@ class ServiceDetailScreen extends StatelessWidget {
       final odooState = Provider.of<OdooState>(context, listen: false);
       if (resolvedAppointmentId == null && odooState.appointmentTypes.isNotEmpty) {
         OdooAppointmentType? matchedType;
+        
+        // First: try to match by product_id (most reliable)
         for (var type in odooState.appointmentTypes) {
           if (type.productId == serviceId) {
             matchedType = type;
+            debugPrint('✅ Matched appointment by product_id: ${type.name} (ID: ${type.id}) for service $serviceId');
             break;
           }
         }
-        // Fallback: match by name
-        matchedType ??= odooState.appointmentTypes.firstWhere(
-          (t) => t.name.toLowerCase() == title.toLowerCase(),
-          orElse: () => odooState.appointmentTypes.first,
-        );
-        resolvedAppointmentId = matchedType.id;
+        
+        // Second: try to match by name (less reliable)
+        if (matchedType == null) {
+          try {
+            matchedType = odooState.appointmentTypes.firstWhere(
+              (t) => t.name.toLowerCase() == title.toLowerCase(),
+            );
+            debugPrint('✅ Matched appointment by name: ${matchedType.name} (ID: ${matchedType.id}) for "$title"');
+          } catch (_) {
+            // No match found - this is correct for non-appointment services!
+            debugPrint('ℹ️ No appointment match found for "$title" (ID: $serviceId) - will show cart');
+          }
+        }
+        
+        // Only set appointmentId if we found a valid match
+        resolvedAppointmentId = matchedType?.id;
       }
 
       // Navigate to service detail page (handles both appointment and product flows)
@@ -709,7 +733,7 @@ class ServiceDetailScreen extends StatelessWidget {
               categoryName: categoryName,
               appointmentId: resolvedAppointmentId,
               appointmentLink: appointmentLink,
-              hasAppointment: resolvedAppointmentId != null,
+              hasAppointment: hasAppointmentFlag,
             ),
           ),
         );

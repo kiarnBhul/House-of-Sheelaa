@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:house_of_sheelaa/theme/brand_theme.dart';
 import 'state/cart_state.dart';
+import 'checkout_screen.dart';
 
 class CartScreen extends StatelessWidget {
   static const String route = '/cart';
@@ -282,14 +283,10 @@ class CartScreen extends StatelessWidget {
                           ),
                           child: ElevatedButton(
                             onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: const Text('Proceeding to checkout...'),
-                                  backgroundColor: BrandColors.ecstasy,
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const CheckoutScreen(),
                                 ),
                               );
                             },

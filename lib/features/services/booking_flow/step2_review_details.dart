@@ -39,6 +39,16 @@ class BookingStep2ReviewDetails extends StatefulWidget {
 class _BookingStep2ReviewDetailsState extends State<BookingStep2ReviewDetails> {
   bool _agreeToTerms = false;
 
+  @override
+  void initState() {
+    super.initState();
+    // Reload user data when booking review opens to ensure email/phone are current
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = context.read<AuthState>();
+      auth.reloadUserData();
+    });
+  }
+
   void _onProceedToPayment() {
     if (!_agreeToTerms) {
       ScaffoldMessenger.of(context).showSnackBar(

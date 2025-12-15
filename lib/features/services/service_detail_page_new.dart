@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:house_of_sheelaa/core/models/review_model.dart';
 import 'package:house_of_sheelaa/core/services/review_service.dart';
@@ -6,7 +7,12 @@ import 'package:house_of_sheelaa/features/auth/state/auth_state.dart';
 import '../../theme/brand_theme.dart';
 import '../../core/odoo/odoo_state.dart';
 import 'package:house_of_sheelaa/core/models/odoo_models.dart';
+import 'package:house_of_sheelaa/core/cart/cart_service.dart';
+import '../store/state/cart_state.dart';
+import '../store/models/product_model.dart';
 import 'unified_appointment_booking_screen.dart';
+import 'widgets/service_type_badge.dart';
+import '../../core/odoo/odoo_api_service.dart';
 
 /// Premium redesigned service detail page for healing/appointment services
 /// Uses the brand color palette: Jacaranda, Cardinal Pink, Persian Red, Ecstasy, Alabaster, Cod Grey
@@ -45,6 +51,13 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
   int? _durationMinutes; // Resolved duration from widget or appointment type
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  
+  // Product variant selection state
+  List<OdooProductVariant> _variants = [];
+  OdooProductVariant? _selectedVariant;
+  bool _loadingVariants = false;
+  int _quantity = 1; // Quantity selector
+  String _attributeName = 'Select Option'; // Dynamic attribute name from Odoo
 
   @override
   void initState() {
@@ -73,14 +86,16 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
 
     try {
       try {
+        // Force fresh load with longer timeout to get updated appointment type data
         await Future.wait([
-          odooState.ensureServicesFresh().timeout(const Duration(seconds: 3)),
+          odooState.ensureServicesFresh(force: true).timeout(const Duration(seconds: 10)),
           odooState
-              .ensureAppointmentTypesFresh()
-              .timeout(const Duration(seconds: 3)),
+              .ensureAppointmentTypesFresh(force: true)
+              .timeout(const Duration(seconds: 10)),
         ]);
+        debugPrint('✅ Fresh data loaded successfully');
       } catch (e) {
-        debugPrint('Error loading fresh data: $e (continuing with cached)');
+        debugPrint('⚠️ Error loading fresh data: $e (continuing with cached)');
       }
 
       OdooService? service;
@@ -117,6 +132,11 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
         _isLoading = false;
       });
       _animationController.forward();
+
+      // Load product variants for non-appointment services
+      if (!widget.hasAppointment) {
+        _loadProductVariants();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -124,6 +144,44 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
       });
       _animationController.forward();
       debugPrint('Error loading service details: $e');
+    }
+  }
+
+  Future<void> _loadProductVariants() async {
+    if (_loadingVariants) return;
+    
+    setState(() {
+      _loadingVariants = true;
+    });
+
+    try {
+      final apiService = OdooApiService();
+      final variants = await apiService.getProductVariants(widget.serviceId);
+      
+      if (!mounted) return;
+      setState(() {
+        _variants = variants;
+        _selectedVariant = variants.isNotEmpty ? variants.first : null;
+        _loadingVariants = false;
+        
+        // Extract attribute name from first variant if available
+        if (variants.isNotEmpty && variants.first.attributes.isNotEmpty) {
+          _attributeName = variants.first.attributes.keys.first;
+        }
+      });
+
+      if (kDebugMode) {
+        debugPrint('[ServiceDetail] Loaded ${variants.length} variants');
+        if (variants.isNotEmpty && variants.first.attributes.isNotEmpty) {
+          debugPrint('[ServiceDetail] Attribute name: $_attributeName');
+        }
+      }
+    } catch (e) {
+      debugPrint('[ServiceDetail] Error loading variants: $e');
+      if (!mounted) return;
+      setState(() {
+        _loadingVariants = false;
+      });
     }
   }
 
@@ -136,8 +194,18 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
   }
 
   String _formatPrice() {
-    if (widget.price != null && widget.price! > 0) {
-      return '₹${widget.price!.toStringAsFixed(0)}';
+    final price = _selectedVariant?.price ?? widget.price ?? 0.0;
+    if (price > 0) {
+      return '₹${price.toStringAsFixed(0)}';
+    }
+    return 'Price on request';
+  }
+  
+  String _formatTotalPrice() {
+    final price = _selectedVariant?.price ?? widget.price ?? 0.0;
+    final total = price * _quantity;
+    if (total > 0) {
+      return '₹${total.toStringAsFixed(0)}';
     }
     return 'Price on request';
   }
@@ -158,10 +226,24 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
 
   @override
   Widget build(BuildContext context) {
-    final effectiveHasAppointment =
-        widget.hasAppointment || (_serviceDetails?.hasAppointment ?? false);
     final effectiveAppointmentId =
         widget.appointmentId ?? _serviceDetails?.appointmentTypeId;
+    
+    // CRITICAL LOGIC: If we have a valid appointmentId, show calendar!
+    // The presence of appointmentId means this service is linked to an appointment type
+    // Don't rely on hasAppointment flag when services API fails
+    final effectiveHasAppointment = effectiveAppointmentId != null;
+
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    debugPrint('📄 ServiceDetailPageNew Build');
+    debugPrint('   Service: ${widget.serviceName} (ID: ${widget.serviceId})');
+    debugPrint('   Widget hasAppointment: ${widget.hasAppointment}');
+    debugPrint('   Widget appointmentId: ${widget.appointmentId}');
+    debugPrint('   Loaded service hasAppointment: ${_serviceDetails?.hasAppointment}');
+    debugPrint('   Effective appointmentId: $effectiveAppointmentId');
+    debugPrint('   Effective hasAppointment: $effectiveHasAppointment');
+    debugPrint('   Flow: ${effectiveHasAppointment ? "APPOINTMENT (Calendar)" : "PRODUCT (Cart)"}');
+    debugPrint('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return Scaffold(
       body: Container(
@@ -179,7 +261,7 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
             ? _buildLoadingState()
             : FadeTransition(
                 opacity: _fadeAnimation,
-                child: effectiveHasAppointment && effectiveAppointmentId != null
+                child: effectiveHasAppointment
                     ? _buildAppointmentServiceDetail(effectiveAppointmentId)
                     : _buildProductServiceDetail(),
               ),
@@ -380,6 +462,16 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
                 ),
                 textAlign: TextAlign.center,
               ),
+
+              const SizedBox(height: 12),
+
+              // Service Type Badge
+              Center(
+                child: ServiceTypeBadge(
+                  hasAppointment: widget.hasAppointment,
+                  durationMinutes: _durationMinutes,
+                ),
+              ),
             ],
           ),
         ),
@@ -536,6 +628,16 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (_quantity > 1) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '× $_quantity = ${_formatTotalPrice()}',
+                    style: tt.bodyMedium?.copyWith(
+                      color: BrandColors.ecstasy.withOpacity(0.8),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -934,6 +1036,16 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
                 _buildIncludedSection(tt),
                 const SizedBox(height: 28),
 
+                // Product Variants Selector (show loading or variants)
+                if (_loadingVariants || _variants.isNotEmpty) ...[
+                  _buildVariantSelector(tt),
+                  const SizedBox(height: 28),
+                ],
+
+                // Quantity Selector
+                _buildQuantitySelector(tt),
+                const SizedBox(height: 28),
+
                 // CTA Buttons
                 _buildProductCTAButtons(tt),
                 const SizedBox(height: 28),
@@ -1067,75 +1179,336 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
     );
   }
 
+  Widget _buildQuantitySelector(TextTheme tt) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            BrandColors.ecstasy.withOpacity(0.15),
+            BrandColors.persianRed.withOpacity(0.1),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: BrandColors.alabaster.withOpacity(0.1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: BrandColors.ecstasy.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.shopping_cart_outlined,
+              color: BrandColors.ecstasy,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Text(
+            'Quantity',
+            style: tt.titleMedium?.copyWith(
+              color: BrandColors.alabaster,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Spacer(),
+          
+          // Quantity controls
+          Container(
+            decoration: BoxDecoration(
+              color: BrandColors.alabaster.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: BrandColors.ecstasy.withOpacity(0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove, color: BrandColors.alabaster),
+                  onPressed: _quantity > 1 ? () {
+                    setState(() {
+                      _quantity--;
+                    });
+                  } : null,
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    '$_quantity',
+                    style: tt.titleLarge?.copyWith(
+                      color: BrandColors.alabaster,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add, color: BrandColors.ecstasy),
+                  onPressed: () {
+                    setState(() {
+                      _quantity++;
+                    });
+                  },
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVariantSelector(TextTheme tt) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            BrandColors.persianRed.withOpacity(0.15),
+            BrandColors.cardinalPink.withOpacity(0.1),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: BrandColors.alabaster.withOpacity(0.1),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: BrandColors.ecstasy.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.tune_rounded,
+                  color: BrandColors.ecstasy,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Text(
+                _attributeName,
+                style: tt.titleMedium?.copyWith(
+                  color: BrandColors.alabaster,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // Loading or Variant Dropdown
+          if (_loadingVariants)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              decoration: BoxDecoration(
+                color: BrandColors.alabaster.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: BrandColors.ecstasy.withOpacity(0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(BrandColors.ecstasy),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Loading options...',
+                    style: tt.bodyMedium?.copyWith(
+                      color: BrandColors.alabaster.withOpacity(0.7),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (_variants.isEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              decoration: BoxDecoration(
+                color: BrandColors.alabaster.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: BrandColors.ecstasy.withOpacity(0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: BrandColors.ecstasy,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Standard option (no variants available)',
+                      style: tt.bodyMedium?.copyWith(
+                        color: BrandColors.alabaster.withOpacity(0.7),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Container(
+              decoration: BoxDecoration(
+                color: BrandColors.alabaster.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: BrandColors.ecstasy.withOpacity(0.3),
+                ),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<OdooProductVariant>(
+                  value: _selectedVariant,
+                  isExpanded: true,
+                  dropdownColor: BrandColors.jacaranda,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: BrandColors.ecstasy),
+                  style: tt.bodyMedium?.copyWith(
+                    color: BrandColors.alabaster,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  items: _variants.map((variant) {
+                    // Get the attribute value (e.g., "Without Feedback") instead of full display name
+                    String displayText = variant.displayName ?? variant.name;
+                    if (variant.attributes.isNotEmpty) {
+                      displayText = variant.attributes.values.first;
+                    }
+                    
+                    return DropdownMenuItem<OdooProductVariant>(
+                      value: variant,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              displayText,
+                              style: tt.bodyMedium?.copyWith(
+                                color: BrandColors.alabaster,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '₹${variant.price.toStringAsFixed(0)}',
+                            style: tt.bodySmall?.copyWith(
+                              color: BrandColors.ecstasy,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (OdooProductVariant? newValue) {
+                    setState(() {
+                      _selectedVariant = newValue;
+                    });
+                  },
+                ),
+              ),
+            ),
+          
+          // Show attributes if available
+          if (_selectedVariant != null && _selectedVariant!.attributes.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _selectedVariant!.attributes.entries.map((entry) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: BrandColors.ecstasy.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: BrandColors.ecstasy.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Text(
+                    '${entry.key}: ${entry.value}',
+                    style: tt.labelSmall?.copyWith(
+                      color: BrandColors.ecstasy,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildProductCTAButtons(TextTheme tt) {
+    final cart = context.watch<CartState>();
+    final isInCart = cart.isInCart(widget.serviceId.toString());
+
     return Column(
       children: [
-        // Book Now Button removed - booking widget is shown directly on the page
-        
-        // Add to Cart Button
+        // Add to Cart / View Cart Button (Primary)
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Added ${widget.serviceName} to cart'),
-                  backgroundColor: BrandColors.jacaranda,
-                ),
-              );
-            },
+            onPressed: isInCart ? _navigateToCart : _addToCart,
             style: ElevatedButton.styleFrom(
-              backgroundColor: BrandColors.ecstasy,
+              backgroundColor: isInCart ? BrandColors.cardinalPink : BrandColors.ecstasy,
               foregroundColor: BrandColors.alabaster,
               padding: const EdgeInsets.symmetric(vertical: 18),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
               elevation: 8,
-              shadowColor: BrandColors.ecstasy.withOpacity(0.4),
+              shadowColor: (isInCart ? BrandColors.cardinalPink : BrandColors.ecstasy).withOpacity(0.4),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.shopping_cart_rounded, size: 22),
+                Icon(
+                  isInCart ? Icons.shopping_bag_rounded : Icons.shopping_cart_rounded,
+                  size: 22,
+                ),
                 const SizedBox(width: 12),
                 Text(
-                  'Add to Cart - ${_formatPrice()}',
+                  isInCart ? 'View Cart' : 'Add to Cart - ${_formatTotalPrice()}',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-
-        // Wishlist Button
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Added to Wishlist'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: BrandColors.cardinalPink,
-              side: const BorderSide(color: BrandColors.cardinalPink, width: 2),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            icon: const Icon(Icons.favorite_border_rounded),
-            label: const Text(
-              'Add to Wishlist',
-              style: TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
         ),
@@ -1526,4 +1899,121 @@ class _ServiceDetailPageNewState extends State<ServiceDetailPageNew>
       },
     );
   }
+
+  /// Add service to cart
+  Future<void> _addToCart() async {
+    final cart = Provider.of<CartState>(context, listen: false);
+    
+    // Convert OdooService to Product for cart compatibility
+    final product = Product(
+      id: (_selectedVariant?.id ?? widget.serviceId).toString(),
+      name: _selectedVariant?.displayName ?? widget.serviceName,
+      subtitle: widget.categoryName ?? '',
+      description: _serviceDetails?.description ?? '',
+      price: '₹${(_selectedVariant?.price ?? widget.price ?? 0.0).toStringAsFixed(0)}',
+      priceValue: (_selectedVariant?.price ?? widget.price ?? 0.0).toInt(),
+      image: widget.serviceImage ?? '',
+      category: widget.categoryName ?? 'Services',
+      benefits: [],
+    );
+    
+    // Add multiple times based on quantity
+    for (int i = 0; i < _quantity; i++) {
+      cart.addItem(product);
+    }
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text('${widget.serviceName} added to cart'),
+            ),
+          ],
+        ),
+        backgroundColor: BrandColors.cardinalPink,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        action: SnackBarAction(
+          label: 'View Cart',
+          textColor: BrandColors.ecstasy,
+          onPressed: _navigateToCart,
+        ),
+      ),
+    );
+
+    setState(() {}); // Refresh to show "View Cart" button
+  }
+
+  /// Navigate to cart screen
+  void _navigateToCart() {
+    Navigator.pushNamed(context, '/cart');
+  }
+
+  /// Get or create Odoo partner for the user
+  Future<int?> _getOrCreatePartner(AuthState authState) async {
+    try {
+      final apiService = OdooApiService();
+      
+      // Use email or phone to find/create partner
+      final email = authState.email ?? '';
+      final phone = authState.phone ?? '';
+      final name = authState.name ?? authState.firstName ?? 'Customer';
+      
+      if (email.isEmpty && phone.isEmpty) {
+        return null;
+      }
+      
+      // Try to find existing partner
+      List<List<dynamic>> domain = [];
+      if (email.isNotEmpty) {
+        domain.add(['email', '=', email]);
+      } else if (phone.isNotEmpty) {
+        domain.add(['phone', '=', phone]);
+      }
+      
+      final partners = await apiService.searchRead(
+        model: 'res.partner',
+        domain: domain,
+        fields: ['id'],
+        limit: 1,
+      );
+      
+      if (partners.isNotEmpty) {
+        return partners.first['id'] as int;
+      }
+      
+      // Create new partner
+      final created = await apiService.executeRpc(
+        model: 'res.partner',
+        method: 'create',
+        args: [
+          {
+            'name': name,
+            if (email.isNotEmpty) 'email': email,
+            if (phone.isNotEmpty) 'phone': phone,
+          }
+        ],
+      );
+      
+      if (created is int) {
+        return created;
+      }
+      
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[ServiceDetail] Failed to get/create partner: $e');
+      }
+      return null;
+    }
+  }
+
+
 }

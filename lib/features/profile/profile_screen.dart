@@ -5,10 +5,24 @@ import 'package:house_of_sheelaa/features/auth/state/auth_state.dart';
 import 'package:house_of_sheelaa/features/auth/presentation/screens/phone_login_screen.dart';
 import 'package:house_of_sheelaa/features/profile/edit_profile_screen.dart';
 import 'package:house_of_sheelaa/features/home/home_screen.dart';
-import 'package:house_of_sheelaa/features/admin/admin_entry_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Force reload user data when profile screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = context.read<AuthState>();
+      auth.reloadUserData(); // This will trigger the load
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

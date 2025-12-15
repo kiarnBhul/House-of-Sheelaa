@@ -15,6 +15,10 @@ class ProductCacheService {
   static const String _keyServicesTimestamp = 'cached_services_timestamp';
   static const String _keyCategoriesTimestamp = 'cached_categories_timestamp';
   static const String _keyAppointmentTypesTimestamp = 'cached_appointment_types_timestamp';
+  static const String _keyCacheVersion = 'cache_version';
+  
+  // Increment this version when adding new fields to force cache refresh
+  static const int _currentCacheVersion = 2; // v2: Added x_appointment_type_id support
   
   /// Cache products to local storage
   static Future<bool> cacheProducts(List<OdooProduct> products) async {
@@ -47,6 +51,7 @@ class ProductCacheService {
       
       await prefs.setString(_keyServices, jsonString);
       await prefs.setInt(_keyServicesTimestamp, DateTime.now().millisecondsSinceEpoch);
+      await prefs.setInt(_keyCacheVersion, _currentCacheVersion);
       
       if (kDebugMode) {
         debugPrint('[ProductCache] ✅ Cached ${services.length} services');

@@ -2,14 +2,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global Odoo Configuration - Read by all authenticated users, Write by admin only
+    // Global Odoo Configuration - PUBLIC READ, admin-only write
     match /app_settings/{document=**} {
-      // All authenticated users can read global settings
-      allow read: if request.auth != null;
+      // Allow unauthenticated reads so the app can boot with config on web
+      allow read: if true;
       
-      // Only admin users can write/update global settings
-      allow write: if request.auth != null && 
-                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      // Allow write if authenticated AND (HofS-admin exists OR user.role == admin)
+      allow write: if request.auth != null && (
+        exists(/databases/$(database)/documents/HofS-admin/$(request.auth.email)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
     }
     
     // Admin collection for admin panel authentication
@@ -23,24 +26,20 @@ service cloud.firestore {
     
     // Users collection
     match /users/{userId} {
-      // Allow read if:
-      // - User is authenticated AND accessing their own data by UID
-      // - OR authenticated user's UID matches the userId field in document
-      // - OR document ID matches user's phone number
-      allow read: if request.auth != null;
+      // Allow read for authenticated users or anyone checking if user exists (for phone login)
+      allow read: if true;
       
-      // Allow write/create if:
-      // - User is authenticated
-      // - AND (userId matches auth.uid OR document userId field matches auth.uid OR creating new document)
-      allow write: if request.auth != null;
-      
-      // Allow create without auth for initial registration
+      // Allow create without auth for initial phone-based registration
       allow create: if true;
       
-      // Admin can read all users
-      allow read: if request.auth != null && 
-                    exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      // Allow update/write for authenticated users updating their own document
+      allow update, write: if request.auth != null && 
+                              (userId == request.auth.uid || 
+                               request.resource.data.userId == request.auth.uid ||
+                               request.resource.data.phone == userId);
+      
+      // Admin can read/write all user documents
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
     // Orders collection
