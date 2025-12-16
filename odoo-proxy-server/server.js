@@ -21,12 +21,53 @@ app.use(express.text({ type: 'text/xml' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
-app.get('/health', (req, res) => res.json({ ok: true }));
+// Track server start time
+const serverStartTime = new Date();
+let requestCount = 0;
+let lastRequestTime = new Date();
+
+// Enhanced health check endpoint with server stats
+app.get('/health', (req, res) => {
+  const uptime = Math.floor((new Date() - serverStartTime) / 1000);
+  const timeSinceLastRequest = Math.floor((new Date() - lastRequestTime) / 1000);
+  
+  res.json({ 
+    ok: true,
+    status: 'healthy',
+    uptime: `${uptime}s`,
+    requests: requestCount,
+    lastRequest: `${timeSinceLastRequest}s ago`,
+    timestamp: new Date().toISOString(),
+    message: 'Proxy server is awake and ready'
+  });
+});
+
+// Middleware to track requests
+app.use((req, res, next) => {
+  requestCount++;
+  lastRequestTime = new Date();
+  next();
+});
 
 // Simple root route
 app.get('/', (req, res) => {
-  res.type('text/plain').send('Odoo Proxy Server is running. Use /api/odoo/* endpoints.');
+  const uptime = Math.floor((new Date() - serverStartTime) / 1000);
+  res.type('text/html').send(`
+    <html>
+      <head><title>Odoo Proxy Server</title></head>
+      <body style="font-family: system-ui; padding: 2rem; max-width: 800px; margin: 0 auto;">
+        <h1>🔄 Odoo Proxy Server</h1>
+        <p>Server is running and ready to handle requests.</p>
+        <ul>
+          <li><strong>Status:</strong> ✅ Healthy</li>
+          <li><strong>Uptime:</strong> ${uptime}s</li>
+          <li><strong>Requests handled:</strong> ${requestCount}</li>
+          <li><strong>Target:</strong> https://house-of-sheelaa.odoo.com</li>
+        </ul>
+        <p><a href="/health">Health Check</a></p>
+      </body>
+    </html>
+  `);
 });
 
 // Proxy middleware for Odoo requests (both /api/odoo and direct paths)
@@ -167,8 +208,42 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
-app.listen(PORT, HOST, () => {
-  console.log(`odoo-proxy server listening on ${HOST}:${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`✅ Odoo proxy server listening on ${HOST}:${PORT}`);
+  console.log(`🎯 Target: https://house-of-sheelaa.odoo.com`);
+  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+  
+  // Self-ping keep-alive mechanism for Render.com free tier
+  // Ping every 10 minutes to prevent cold starts (Render sleeps after 15 min inactivity)
+  if (process.env.RENDER) {
+    console.log('📡 Render.com detected - enabling keep-alive ping');
+    const KEEP_ALIVE_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    
+    setInterval(async () => {
+      try {
+        const http = require('http');
+        const options = {
+          hostname: 'localhost',
+          port: PORT,
+          path: '/health',
+          method: 'GET',
+          timeout: 5000,
+        };
+        
+        const req = http.request(options, (res) => {
+          console.log(`🔄 Keep-alive ping successful (status: ${res.statusCode})`);
+        });
+        
+        req.on('error', (error) => {
+          console.error(`❌ Keep-alive ping failed: ${error.message}`);
+        });
+        
+        req.end();
+      } catch (error) {
+        console.error(`❌ Keep-alive error: ${error.message}`);
+      }
+    }, KEEP_ALIVE_INTERVAL);
+  }
 });
 
 
