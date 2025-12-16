@@ -219,23 +219,35 @@ const server = app.listen(PORT, HOST, () => {
     console.log('📡 Render.com detected - enabling keep-alive ping');
     const KEEP_ALIVE_INTERVAL = 10 * 60 * 1000; // 10 minutes
     
+    // Get the public Render URL from environment or construct it
+    const renderUrl = process.env.RENDER_EXTERNAL_URL || `https://house-of-sheelaa-proxy-server.onrender.com`;
+    console.log(`🔄 Keep-alive will ping: ${renderUrl}/health every 10 minutes`);
+    
     setInterval(async () => {
       try {
-        const http = require('http');
+        const https = require('https');
+        const url = new URL(`${renderUrl}/health`);
+        
         const options = {
-          hostname: 'localhost',
-          port: PORT,
-          path: '/health',
+          hostname: url.hostname,
+          port: url.port || 443,
+          path: url.pathname,
           method: 'GET',
-          timeout: 5000,
+          timeout: 10000,
         };
         
-        const req = http.request(options, (res) => {
-          console.log(`🔄 Keep-alive ping successful (status: ${res.statusCode})`);
+        const req = https.request(options, (res) => {
+          console.log(`🔄 Keep-alive ping successful (status: ${res.statusCode}) - ${new Date().toISOString()}`);
+          res.on('data', () => {}); // Consume response data
         });
         
         req.on('error', (error) => {
           console.error(`❌ Keep-alive ping failed: ${error.message}`);
+        });
+        
+        req.on('timeout', () => {
+          console.error(`⏱️ Keep-alive ping timeout`);
+          req.destroy();
         });
         
         req.end();
@@ -243,6 +255,33 @@ const server = app.listen(PORT, HOST, () => {
         console.error(`❌ Keep-alive error: ${error.message}`);
       }
     }, KEEP_ALIVE_INTERVAL);
+    
+    // Initial ping after 1 minute to confirm keep-alive is working
+    setTimeout(async () => {
+      console.log('🔍 Performing initial keep-alive test...');
+      try {
+        const https = require('https');
+        const url = new URL(`${renderUrl}/health`);
+        
+        const req = https.request({
+          hostname: url.hostname,
+          port: url.port || 443,
+          path: url.pathname,
+          method: 'GET',
+          timeout: 10000,
+        }, (res) => {
+          console.log(`✅ Initial keep-alive test successful - Server is accessible at ${renderUrl}`);
+        });
+        
+        req.on('error', (error) => {
+          console.error(`❌ Initial keep-alive test failed: ${error.message}`);
+        });
+        
+        req.end();
+      } catch (error) {
+        console.error(`❌ Initial keep-alive error: ${error.message}`);
+      }
+    }, 60000); // 1 minute
   }
 });
 
