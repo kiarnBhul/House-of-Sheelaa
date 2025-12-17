@@ -214,14 +214,16 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);
   
   // Self-ping keep-alive mechanism for Render.com free tier
-  // Ping every 10 minutes to prevent cold starts (Render sleeps after 15 min inactivity)
+  // Ping every 5 minutes to prevent cold starts (Render sleeps after 15 min inactivity)
+  // Using 5 min instead of 10 min for safety margin
   if (process.env.RENDER) {
     console.log('📡 Render.com detected - enabling keep-alive ping');
-    const KEEP_ALIVE_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    const KEEP_ALIVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
     
     // Get the public Render URL from environment or construct it
     const renderUrl = process.env.RENDER_EXTERNAL_URL || `https://house-of-sheelaa-proxy-server.onrender.com`;
-    console.log(`🔄 Keep-alive will ping: ${renderUrl}/health every 10 minutes`);
+    console.log(`🔄 Keep-alive will ping: ${renderUrl}/health every 5 minutes`);
+    console.log(`⏰ Render free tier sleeps after 15 min - 5 min interval keeps it awake`);
     
     setInterval(async () => {
       try {
@@ -256,9 +258,9 @@ const server = app.listen(PORT, HOST, () => {
       }
     }, KEEP_ALIVE_INTERVAL);
     
-    // Initial ping after 1 minute to confirm keep-alive is working
+    // Perform first keep-alive ping immediately on startup
+    console.log('🔍 Performing immediate initial keep-alive test...');
     setTimeout(async () => {
-      console.log('🔍 Performing initial keep-alive test...');
       try {
         const https = require('https');
         const url = new URL(`${renderUrl}/health`);
@@ -271,17 +273,19 @@ const server = app.listen(PORT, HOST, () => {
           timeout: 10000,
         }, (res) => {
           console.log(`✅ Initial keep-alive test successful - Server is accessible at ${renderUrl}`);
+          console.log(`💚 Keep-alive monitoring active - server will stay awake 24/7`);
         });
         
         req.on('error', (error) => {
           console.error(`❌ Initial keep-alive test failed: ${error.message}`);
+          console.error(`⚠️ Server may sleep after 15 minutes without external requests`);
         });
         
         req.end();
       } catch (error) {
         console.error(`❌ Initial keep-alive error: ${error.message}`);
       }
-    }, 60000); // 1 minute
+    }, 5000); // 5 seconds - quick initial test
   }
 });
 
